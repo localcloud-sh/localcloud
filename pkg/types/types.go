@@ -1,0 +1,1 @@
+// Package types contains shared type definitions for LocalCloud 

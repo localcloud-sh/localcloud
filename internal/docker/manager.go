@@ -1,0 +1,162 @@
+// internal/docker/manager.go
+package docker
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/localcloud/localcloud/internal/config"
+)
+
+// Manager provides a high-level interface for Docker operations
+type Manager struct {
+	client    *Client
+	config    *config.Config
+	container ContainerManager
+	network   NetworkManager
+	volume    VolumeManager
+	image     ImageManager
+	services  *ServiceManager
+}
+
+// NewManager creates a new Docker manager
+func NewManager(ctx context.Context, cfg *config.Config) (*Manager, error) {
+	client, err := NewClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check Docker version
+	if err := client.CheckDockerVersion(); err != nil {
+		return nil, err
+	}
+
+	manager := &Manager{
+		client:    client,
+		config:    cfg,
+		container: client.NewContainerManager(),
+		network:   client.NewNetworkManager(),
+		volume:    client.NewVolumeManager(),
+		image:     client.NewImageManager(),
+	}
+
+	// Initialize service manager
+	manager.services = NewServiceManager(manager)
+
+	return manager, nil
+}
+
+// Close closes the Docker client connection
+func (m *Manager) Close() error {
+	return m.client.Close()
+}
+
+// InitializeProject initializes Docker resources for a project
+func (m *Manager) InitializeProject() error {
+	// Create default network
+	networkName := fmt.Sprintf("localcloud_%s_default", m.config.Project.Name)
+	_, err := m.network.Create(networkName)
+	if err != nil {
+		return fmt.Errorf("failed to create network: %w", err)
+	}
+
+	// Create volumes for each service
+	volumes := m.getRequiredVolumes()
+	for _, vol := range volumes {
+		volumeName := fmt.Sprintf("localcloud_%s_%s", m.config.Project.Name, vol)
+		_, err := m.volume.Create(volumeName)
+		if err != nil {
+			return fmt.Errorf("failed to create volume %s: %w", vol, err)
+		}
+	}
+
+	return nil
+}
+
+// StartServices delegates to service manager
+func (m *Manager) StartServices(progress chan<- ServiceProgress) error {
+	return m.services.StartAll(progress)
+}
+
+// StopServices delegates to service manager
+func (m *Manager) StopServices(progress chan<- ServiceProgress) error {
+	return m.services.StopAll(progress)
+}
+
+// GetServicesStatus delegates to service manager
+func (m *Manager) GetServicesStatus() ([]ServiceStatus, error) {
+	return m.services.GetStatus()
+}
+
+// CleanupProject removes all project resources
+func (m *Manager) CleanupProject() error {
+	// Stop all services first
+	progress := make(chan ServiceProgress)
+	go func() {
+		for range progress {
+			// Drain channel
+		}
+	}()
+
+	if err := m.StopServices(progress); err != nil {
+		return fmt.Errorf("failed to stop services: %w", err)
+	}
+
+	// Remove volumes
+	volumes, err := m.volume.List()
+	if err != nil {
+		return err
+	}
+
+	for _, vol := range volumes {
+		if vol.Labels["com.localcloud.project"] == m.config.Project.Name {
+			if err := m.volume.Remove(vol.Name); err != nil {
+				// Log error but continue
+				fmt.Printf("Warning: failed to remove volume %s: %v\n", vol.Name, err)
+			}
+		}
+	}
+
+	// Remove network
+	networks, err := m.network.List()
+	if err != nil {
+		return err
+	}
+
+	for _, net := range networks {
+		if net.Name == fmt.Sprintf("localcloud_%s_default", m.config.Project.Name) {
+			if err := m.network.Remove(net.ID); err != nil {
+				fmt.Printf("Warning: failed to remove network %s: %v\n", net.Name, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// getRequiredVolumes returns list of volumes needed based on config
+func (m *Manager) getRequiredVolumes() []string {
+	volumes := []string{"ollama_models"} // Always need AI models volume
+
+	if m.config.Services.Database.Type != "" {
+		volumes = append(volumes, "postgres_data")
+	}
+	if m.config.Services.Cache.Type != "" {
+		volumes = append(volumes, "redis_data")
+	}
+	if m.config.Services.Storage.Type != "" {
+		volumes = append(volumes, "minio_data")
+	}
+
+	return volumes
+}
+
+// GetClient returns the Docker client for advanced usage
+func (m *Manager) GetClient() *Client {
+	return m.client
+}
+
+// GetConfig returns the current configuration
+func (m *Manager) GetConfig() *config.Config {
+	return m.config
+}
