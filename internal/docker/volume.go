@@ -39,40 +39,6 @@ func (c *Client) NewVolumeManager() VolumeManager {
 	return &volumeManager{client: c}
 }
 
-// Create creates a new volume
-func (m *volumeManager) Create(name string) (string, error) {
-	// Ensure volume name has project prefix
-	volumeName := getVolumeName(name)
-
-	// Check if volume already exists
-	exists, err := m.Exists(volumeName)
-	if err != nil {
-		return "", err
-	}
-	if exists {
-		return volumeName, nil
-	}
-
-	// Create volume
-	vol, err := m.client.docker.VolumeCreate(
-		m.client.ctx,
-		volume.CreateOptions{
-			Name:   volumeName,
-			Driver: "local",
-			Labels: map[string]string{
-				"com.localcloud.managed": "true",
-				"com.localcloud.project": getProjectName(),
-				"com.localcloud.service": name,
-			},
-		},
-	)
-	if err != nil {
-		return "", fmt.Errorf("failed to create volume: %w", err)
-	}
-
-	return vol.Name, nil
-}
-
 // Remove removes a volume
 func (m *volumeManager) Remove(name string) error {
 	volumeName := getVolumeName(name)
@@ -84,17 +50,66 @@ func (m *volumeManager) Remove(name string) error {
 	return nil
 }
 
+// Create creates a new volume
+func (m *volumeManager) Create(name string) (string, error) {
+	// Ensure volume name has project prefix
+	volumeName := getVolumeName(name)
+	fmt.Printf("DEBUG: Creating volume with name: %s\n", volumeName)
+
+	// Check if volume already exists
+	exists, err := m.Exists(volumeName)
+	if err != nil {
+		fmt.Printf("DEBUG: Error checking if volume exists: %v\n", err)
+		// Don't return error, try to create anyway
+		// return "", err
+	}
+	if exists {
+		fmt.Printf("DEBUG: Volume already exists: %s\n", volumeName)
+		return volumeName, nil
+	}
+
+	fmt.Printf("DEBUG: Volume does not exist, creating new volume\n")
+
+	// Create volume
+	vol, err := m.client.docker.VolumeCreate(
+		m.client.ctx,
+		volume.VolumeCreateBody{
+			Name:   volumeName,
+			Driver: "local",
+			Labels: map[string]string{
+				"com.localcloud.managed": "true",
+				"com.localcloud.project": getProjectName(),
+				"com.localcloud.service": name,
+			},
+		},
+	)
+	if err != nil {
+		fmt.Printf("DEBUG: VolumeCreate failed: %v\n", err)
+		return "", fmt.Errorf("failed to create volume: %w", err)
+	}
+
+	fmt.Printf("DEBUG: Volume created successfully: %s\n", vol.Name)
+	return vol.Name, nil
+}
+
 // Exists checks if a volume exists
 func (m *volumeManager) Exists(name string) (bool, error) {
-	volumeName := getVolumeName(name)
+	fmt.Printf("DEBUG: Checking if volume exists: %s\n", name)
 
-	_, err := m.client.docker.VolumeInspect(m.client.ctx, volumeName)
+	_, err := m.client.docker.VolumeInspect(m.client.ctx, name)
 	if err != nil {
-		if strings.Contains(err.Error(), "no such volume") {
+		// Check for various error messages
+		errStr := strings.ToLower(err.Error())
+		if strings.Contains(errStr, "no such volume") ||
+			strings.Contains(errStr, "not found") ||
+			strings.Contains(errStr, "404") {
+			fmt.Printf("DEBUG: Volume does not exist (error: %v)\n", err)
 			return false, nil
 		}
-		return false, err
+		fmt.Printf("DEBUG: VolumeInspect returned unexpected error: %v\n", err)
+		return false, fmt.Errorf("failed to inspect volume: %w", err)
 	}
+	fmt.Printf("DEBUG: Volume exists\n")
 	return true, nil
 }
 
@@ -104,6 +119,7 @@ func (m *volumeManager) List() ([]VolumeInfo, error) {
 	filterArgs := filters.NewArgs()
 	filterArgs.Add("label", "com.localcloud.managed=true")
 
+	// List volumes with filter
 	volumes, err := m.client.docker.VolumeList(m.client.ctx, filterArgs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list volumes: %w", err)
@@ -111,6 +127,7 @@ func (m *volumeManager) List() ([]VolumeInfo, error) {
 
 	var result []VolumeInfo
 	for _, v := range volumes.Volumes {
+
 		info := VolumeInfo{
 			Name:       v.Name,
 			Driver:     v.Driver,
@@ -163,7 +180,7 @@ func (m *volumeManager) Backup(volumeName string, backupPath string) error {
 	}
 
 	// Wait for container to finish
-	statusCh, errCh := m.client.docker.ContainerWait(m.client.ctx, containerID, container.WaitConditionNotRunning)
+	statusCh, errCh := m.client.docker.ContainerWait(m.client.ctx, containerID, "not-running")
 	select {
 	case err := <-errCh:
 		if err != nil {

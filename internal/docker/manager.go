@@ -53,23 +53,36 @@ func (m *Manager) Close() error {
 
 // InitializeProject initializes Docker resources for a project
 func (m *Manager) InitializeProject() error {
+	fmt.Println("DEBUG: Manager.InitializeProject called")
+
 	// Create default network
 	networkName := fmt.Sprintf("localcloud_%s_default", m.config.Project.Name)
+	fmt.Printf("DEBUG: Creating network: %s\n", networkName)
+
 	_, err := m.network.Create(networkName)
 	if err != nil {
+		fmt.Printf("DEBUG: Network creation failed: %v\n", err)
 		return fmt.Errorf("failed to create network: %w", err)
 	}
+	fmt.Println("DEBUG: Network created successfully")
 
 	// Create volumes for each service
 	volumes := m.getRequiredVolumes()
+	fmt.Printf("DEBUG: Required volumes: %v\n", volumes)
+
 	for _, vol := range volumes {
 		volumeName := fmt.Sprintf("localcloud_%s_%s", m.config.Project.Name, vol)
+		fmt.Printf("DEBUG: Creating volume: %s\n", volumeName)
+
 		_, err := m.volume.Create(volumeName)
 		if err != nil {
+			fmt.Printf("DEBUG: Volume creation failed: %v\n", err)
 			return fmt.Errorf("failed to create volume %s: %w", vol, err)
 		}
+		fmt.Printf("DEBUG: Volume %s created successfully\n", volumeName)
 	}
 
+	fmt.Println("DEBUG: InitializeProject completed successfully")
 	return nil
 }
 

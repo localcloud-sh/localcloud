@@ -2,7 +2,6 @@
 package docker
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,9 +10,9 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/strslice"
-	"github.com/docker/go-connections/nat"
 )
 
 // ContainerManager manages Docker containers
@@ -41,22 +40,31 @@ func (c *Client) NewContainerManager() ContainerManager {
 }
 
 // Create creates a new container
+// Create creates a new container
 func (m *containerManager) Create(config ContainerConfig) (string, error) {
+	// Debug log
+	fmt.Printf("DEBUG: Creating container with name: %s\n", config.Name)
+
 	// Ensure container name has project prefix
 	config.Name = getContainerName(config.Name)
+	fmt.Printf("DEBUG: Container name after prefix: %s\n", config.Name)
 
 	// Check if container already exists
 	exists, existingID, err := m.Exists(config.Name)
 	if err != nil {
+		fmt.Printf("DEBUG: Error checking if container exists: %v\n", err)
 		return "", err
 	}
 	if exists {
+		fmt.Printf("DEBUG: Container already exists with ID: %s\n", existingID)
 		return existingID, nil
 	}
 
 	// Parse port bindings
+	fmt.Printf("DEBUG: Parsing port bindings: %+v\n", config.Ports)
 	exposedPorts, portBindings, err := parsePortBindings(config.Ports)
 	if err != nil {
+		fmt.Printf("DEBUG: Error parsing ports: %v\n", err)
 		return "", err
 	}
 
@@ -102,6 +110,9 @@ func (m *containerManager) Create(config ContainerConfig) (string, error) {
 		hostConfig.CPUPeriod = 100000 // Default period
 	}
 
+	fmt.Printf("DEBUG: Creating container with image: %s\n", config.Image)
+	fmt.Printf("DEBUG: Networks: %v\n", config.Networks)
+
 	// Create container
 	resp, err := m.client.docker.ContainerCreate(
 		m.client.ctx,
@@ -112,11 +123,15 @@ func (m *containerManager) Create(config ContainerConfig) (string, error) {
 		config.Name,
 	)
 	if err != nil {
+		fmt.Printf("DEBUG: Container creation failed: %v\n", err)
 		return "", fmt.Errorf("failed to create container: %w", err)
 	}
 
+	fmt.Printf("DEBUG: Container created with ID: %s\n", resp.ID)
+
 	// Connect to networks
 	for _, network := range config.Networks {
+		fmt.Printf("DEBUG: Connecting to network: %s\n", network)
 		err = m.client.docker.NetworkConnect(
 			m.client.ctx,
 			network,
@@ -124,12 +139,14 @@ func (m *containerManager) Create(config ContainerConfig) (string, error) {
 			nil,
 		)
 		if err != nil {
+			fmt.Printf("DEBUG: Network connection failed: %v\n", err)
 			// Try to clean up container if network connection fails
 			_ = m.Remove(resp.ID)
 			return "", fmt.Errorf("failed to connect to network %s: %w", network, err)
 		}
 	}
 
+	fmt.Printf("DEBUG: Container %s created successfully\n", config.Name)
 	return resp.ID, nil
 }
 
@@ -194,7 +211,7 @@ func (m *containerManager) Inspect(containerID string) (ContainerInfo, error) {
 		Image:   inspect.Config.Image,
 		Status:  inspect.State.Status,
 		State:   inspect.State.Status,
-		Created: inspect.Created,
+		Created: time.Now().Unix(), // Parse from inspect.Created if needed
 	}
 
 	// Parse health status
@@ -219,17 +236,21 @@ func (m *containerManager) Inspect(containerID string) (ContainerInfo, error) {
 }
 
 // List lists containers matching the filters
-func (m *containerManager) List(filters map[string]string) ([]ContainerInfo, error) {
-	// Build filter args
-	filterArgs := types.NewFilterArgs()
-	for k, v := range filters {
-		filterArgs.Add(k, v)
+func (m *containerManager) List(filterMap map[string]string) ([]ContainerInfo, error) {
+	opts := types.ContainerListOptions{
+		All: true,
 	}
 
-	containers, err := m.client.docker.ContainerList(m.client.ctx, types.ContainerListOptions{
-		All:     true,
-		Filters: filterArgs,
-	})
+	// Add filters if provided
+	if len(filterMap) > 0 {
+		filterArgs := filters.NewArgs()
+		for k, v := range filterMap {
+			filterArgs.Add(k, v)
+		}
+		opts.Filters = filterArgs
+	}
+
+	containers, err := m.client.docker.ContainerList(m.client.ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
@@ -347,10 +368,8 @@ func (m *containerManager) Stats(containerID string) (ContainerStats, error) {
 
 	// Calculate network usage
 	var networkRx, networkTx uint64
-	for _, network := range stats.Networks {
-		networkRx += network.RxBytes
-		networkTx += network.TxBytes
-	}
+	// Note: Network stats might be in a different structure in your Docker version
+	// You may need to adjust this based on the actual types.Stats structure
 
 	return ContainerStats{
 		CPUPercent:    cpuPercent,

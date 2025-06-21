@@ -39,36 +39,54 @@ type ServiceStatus struct {
 func (sm *ServiceManager) StartAll(progress chan<- ServiceProgress) error {
 	defer close(progress)
 
+	fmt.Println("DEBUG: ServiceManager.StartAll called")
+
 	// Initialize project resources
+	fmt.Println("DEBUG: Initializing project resources...")
 	if err := sm.manager.InitializeProject(); err != nil {
+		fmt.Printf("DEBUG: InitializeProject failed: %v\n", err)
 		return err
 	}
 
 	// Start services in order
 	services := sm.getServiceOrder()
+	fmt.Printf("DEBUG: Services to start: %v\n", services)
 
+	var lastError error
 	for _, service := range services {
+		fmt.Printf("DEBUG: Starting service: %s\n", service)
+
 		progress <- ServiceProgress{
 			Service: service,
 			Status:  "starting",
 		}
 
 		if err := sm.startService(service); err != nil {
+			fmt.Printf("DEBUG: Service %s failed with error: %v\n", service, err)
 			progress <- ServiceProgress{
 				Service: service,
 				Status:  "failed",
 				Error:   err.Error(),
 			}
-			return err
+			lastError = err
+			// Continue with other services instead of returning immediately
+			continue
 		}
 
+		fmt.Printf("DEBUG: Service %s started successfully\n", service)
 		progress <- ServiceProgress{
 			Service: service,
 			Status:  "started",
 		}
 	}
 
-	return nil
+	if lastError != nil {
+		fmt.Printf("DEBUG: StartAll completed with errors. Last error: %v\n", lastError)
+	} else {
+		fmt.Println("DEBUG: StartAll completed successfully")
+	}
+
+	return lastError
 }
 
 // StopAll stops all services
@@ -156,18 +174,24 @@ func (sm *ServiceManager) GetStatus() ([]ServiceStatus, error) {
 
 // startService starts a specific service
 func (sm *ServiceManager) startService(service string) error {
+	fmt.Printf("DEBUG: startService called for: %s\n", service)
+
 	switch service {
 	case "ai":
 		starter := NewAIServiceStarter(sm.manager)
+		fmt.Println("DEBUG: Created AIServiceStarter")
 		return starter.Start()
 	case "database":
 		starter := NewDatabaseServiceStarter(sm.manager)
+		fmt.Println("DEBUG: Created DatabaseServiceStarter")
 		return starter.Start()
 	case "cache":
 		starter := NewCacheServiceStarter(sm.manager)
+		fmt.Println("DEBUG: Created CacheServiceStarter")
 		return starter.Start()
 	case "storage":
 		starter := NewStorageServiceStarter(sm.manager)
+		fmt.Println("DEBUG: Created StorageServiceStarter")
 		return starter.Start()
 	default:
 		return fmt.Errorf("unknown service: %s", service)

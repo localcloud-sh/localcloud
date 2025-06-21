@@ -4,11 +4,11 @@ package docker
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/docker/docker/api/types/filters"
 	"io"
 	"strings"
 
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/filters"
 )
 
 // ImageManager manages Docker images

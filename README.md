@@ -49,6 +49,22 @@ LocalCloud consists of:
 - Basic chat and RAG templates
 - Local deployment system
 
+
+## Database Connection
+
+LocalCloud provides two ways to connect to PostgreSQL:
+
+1. **Automatic (Recommended)**: Just run `lc db connect`
+    - Uses Docker exec if psql is not installed
+    - No additional tools required
+
+2. **Native psql (Optional)**: Install PostgreSQL client tools
+    - macOS: `brew install postgresql`
+    - Ubuntu: `sudo apt-get install postgresql-client`
+    - Windows: Download from postgresql.org
+
+The connection will automatically use the best available method.
+
 ## Contributing
 
 We're building in the open! Check out [CONTRIBUTING.md](./CONTRIBUTING.md) for:

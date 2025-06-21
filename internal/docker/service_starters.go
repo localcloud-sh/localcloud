@@ -30,7 +30,7 @@ func (s *AIServiceStarter) Start() error {
 
 	// Create container config
 	config := ContainerConfig{
-		Name:  "ai",
+		Name:  "localcloud-ai",
 		Image: "ollama/ollama:latest",
 		Env: map[string]string{
 			"OLLAMA_HOST": "0.0.0.0:11434",
@@ -79,7 +79,7 @@ func (s *AIServiceStarter) Start() error {
 	}
 
 	// Wait for health check
-	return s.manager.container.WaitHealthy(containerID, 60*time.Second)
+	return s.manager.container.WaitHealthy(containerID, 120*time.Second)
 }
 
 // ensureImage checks and pulls image if needed
@@ -128,7 +128,7 @@ func (s *DatabaseServiceStarter) Start() error {
 
 	// Create container config
 	config := ContainerConfig{
-		Name:  "postgres",
+		Name:  "localcloud-postgres",
 		Image: image,
 		Env: map[string]string{
 			"POSTGRES_USER":     "localcloud",
@@ -205,7 +205,7 @@ func (s *CacheServiceStarter) Start() error {
 
 	// Create container config
 	config := ContainerConfig{
-		Name:  "redis",
+		Name:  "localcloud-redis",
 		Image: "redis:7-alpine",
 		Command: []string{
 			"redis-server",
@@ -277,7 +277,7 @@ func (s *StorageServiceStarter) Start() error {
 
 	// Create container config
 	config := ContainerConfig{
-		Name:  "minio",
+		Name:  "localcloud-minio",
 		Image: "minio/minio:latest",
 		Command: []string{
 			"server",

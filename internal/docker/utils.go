@@ -2,8 +2,6 @@
 package docker
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"strings"
 )
@@ -41,23 +39,6 @@ func parseMemoryLimit(limit string) int64 {
 	return 4 * 1024 * 1024 * 1024
 }
 
-// generatePassword generates a secure random password
-func generatePassword() string {
-	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		// Fallback to default in case of error
-		return "localcloud-dev-password"
-	}
-	return hex.EncodeToString(bytes)
-}
-
-// getProjectName extracts project name from config or defaults
-func getProjectName() string {
-	// This should be properly implemented to get from config
-	// For now, return default
-	return "default"
-}
-
 // formatBytes converts bytes to human-readable format
 func formatBytes(bytes uint64) string {
 	const unit = 1024
@@ -72,17 +53,4 @@ func formatBytes(bytes uint64) string {
 	}
 
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
-}
-
-// Container name helpers
-func getContainerName(service string) string {
-	return fmt.Sprintf("localcloud-%s", service)
-}
-
-func getVolumeName(volume string) string {
-	return fmt.Sprintf("localcloud_%s", volume)
-}
-
-func getNetworkName(network string) string {
-	return fmt.Sprintf("localcloud_%s", network)
 }

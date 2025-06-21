@@ -1,58 +1,61 @@
+// internal/config/config.go
 package config
 
 import (
 	"fmt"
 	"github.com/spf13/viper"
+	"os"
+	"path/filepath"
 )
 
 // Config represents configuration
 type Config struct {
-	Version   string
-	Project   ProjectConfig
-	Services  ServicesConfig
-	Resources ResourceConfig
+	Version   string         `mapstructure:"version"`
+	Project   ProjectConfig  `mapstructure:"project"`
+	Services  ServicesConfig `mapstructure:"services"`
+	Resources ResourceConfig `mapstructure:"resources"`
 }
 
 type ProjectConfig struct {
-	Name string
-	Type string
+	Name string `mapstructure:"name"`
+	Type string `mapstructure:"type"`
 }
 
 type ServicesConfig struct {
-	AI       AIConfig
-	Database DatabaseConfig
-	Cache    CacheConfig
-	Storage  StorageConfig
+	AI       AIConfig       `mapstructure:"ai"`
+	Database DatabaseConfig `mapstructure:"database"`
+	Cache    CacheConfig    `mapstructure:"cache"`
+	Storage  StorageConfig  `mapstructure:"storage"`
 }
 
 type AIConfig struct {
-	Models  []string
-	Default string
-	Port    int
+	Models  []string `mapstructure:"models"`
+	Default string   `mapstructure:"default"`
+	Port    int      `mapstructure:"port"`
 }
 
 type DatabaseConfig struct {
-	Type       string
-	Version    string
-	Port       int
-	Extensions []string
+	Type       string   `mapstructure:"type"`
+	Version    string   `mapstructure:"version"`
+	Port       int      `mapstructure:"port"`
+	Extensions []string `mapstructure:"extensions"`
 }
 
 type CacheConfig struct {
-	Type      string
-	Port      int
-	MaxMemory string
+	Type      string `mapstructure:"type"`
+	Port      int    `mapstructure:"port"`
+	MaxMemory string `mapstructure:"maxmemory"`
 }
 
 type StorageConfig struct {
-	Type    string
-	Port    int
-	Console int
+	Type    string `mapstructure:"type"`
+	Port    int    `mapstructure:"port"`
+	Console int    `mapstructure:"console"`
 }
 
 type ResourceConfig struct {
-	MemoryLimit string
-	CPULimit    string
+	MemoryLimit string `mapstructure:"memory_limit"`
+	CPULimit    string `mapstructure:"cpu_limit"`
 }
 
 var (
@@ -62,21 +65,70 @@ var (
 
 // Init initializes config
 func Init(configFile string) error {
-	cfg = &Config{
-		Version: "1",
-		Project: ProjectConfig{
-			Name: "my-project",
-			Type: "general",
-		},
-	}
 	v = viper.New()
+
+	// Set config type
+	v.SetConfigType("yaml")
+
+	// If specific config file provided
+	if configFile != "" && configFile != "./.localcloud/config.yaml" {
+		v.SetConfigFile(configFile)
+	} else {
+		// Set config name
+		v.SetConfigName("config")
+
+		// Add search paths
+		v.AddConfigPath("./.localcloud")
+		v.AddConfigPath(".")
+
+		// Try to find project root
+		if projectRoot, err := findProjectRoot(); err == nil {
+			v.AddConfigPath(filepath.Join(projectRoot, ".localcloud"))
+		}
+	}
+
+	// Set defaults
+	setDefaults()
+
+	// Read config
+	if err := v.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			// No config file found, use defaults
+			cfg = &Config{}
+			v.Unmarshal(cfg)
+			return nil
+		}
+		return fmt.Errorf("error reading config: %w", err)
+	}
+
+	// Unmarshal config
+	cfg = &Config{}
+	if err := v.Unmarshal(cfg); err != nil {
+		return fmt.Errorf("error unmarshaling config: %w", err)
+	}
+
 	return nil
+}
+
+// setDefaults sets default values
+func setDefaults() {
+	v.SetDefault("version", "1")
+	v.SetDefault("project.name", "my-project")
+	v.SetDefault("project.type", "general")
+	v.SetDefault("services.ai.port", 11434)
+	v.SetDefault("services.database.port", 5432)
+	v.SetDefault("services.cache.port", 6379)
+	v.SetDefault("services.storage.port", 9000)
+	v.SetDefault("services.storage.console", 9001)
+	v.SetDefault("resources.memory_limit", "4GB")
+	v.SetDefault("resources.cpu_limit", "2")
 }
 
 // Get returns current config
 func Get() *Config {
 	if cfg == nil {
-		cfg = &Config{}
+		// Try to initialize with defaults if not initialized
+		Init("")
 	}
 	return cfg
 }
@@ -87,6 +139,29 @@ func GetViper() *viper.Viper {
 		v = viper.New()
 	}
 	return v
+}
+
+// findProjectRoot finds the project root by looking for .localcloud directory
+func findProjectRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	for {
+		configPath := filepath.Join(dir, ".localcloud")
+		if _, err := os.Stat(configPath); err == nil {
+			return dir, nil
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	return "", fmt.Errorf(".localcloud directory not found")
 }
 
 // GenerateDefault generates default config
@@ -102,6 +177,18 @@ services:
       - qwen2.5:3b
     default: qwen2.5:3b
     port: 11434
+  
+  database:
+    type: postgres
+    version: "16"
+    port: 5432
+    extensions:
+      - uuid-ossp
+  
+  cache:
+    type: redis
+    port: 6379
+    maxmemory: "512mb"
 
 resources:
   memory_limit: "4GB"

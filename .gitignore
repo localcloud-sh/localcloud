@@ -77,7 +77,8 @@ pids/
 # Coverage directory used by tools like istanbul
 coverage/
 *.lcov
-
+go.sum
+go.sum.backup
 # Temporary folders
 tmp/
 temp/ 
