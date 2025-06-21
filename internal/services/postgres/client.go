@@ -58,32 +58,65 @@ func (c *Client) Connect() error {
 
 // Backup creates a database backup
 func (c *Client) Backup(outputPath string) error {
-	// Check if pg_dump is available
-	if _, err := exec.LookPath("pg_dump"); err != nil {
-		return fmt.Errorf("pg_dump not found. Please install PostgreSQL client tools")
-	}
-
 	// Create output directory if needed
 	dir := filepath.Dir(outputPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create backup directory: %w", err)
 	}
 
-	// Run pg_dump
-	cmd := exec.Command("pg_dump",
-		c.service.connString,
-		"--clean",
-		"--if-exists",
-		"--no-owner",
-		"--no-acl",
-		"-f", outputPath,
-	)
+	// Try native pg_dump first
+	if _, err := exec.LookPath("pg_dump"); err == nil {
+		cmd := exec.Command("pg_dump",
+			c.service.connString,
+			"--clean",
+			"--if-exists",
+			"--no-owner",
+			"--no-acl",
+			"-f", outputPath,
+		)
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("backup failed: %w\n%s", err, output)
+		}
+		return nil
+	}
+
+	// Fallback to Docker exec
+	fmt.Println("Creating backup via Docker...")
+
+	containerName := "localcloud-postgres"
+
+	// Check if container is running
+	checkCmd := exec.Command("docker", "ps", "-q", "-f", "name="+containerName)
+	output, err := checkCmd.Output()
+	if err != nil || len(output) == 0 {
+		return fmt.Errorf("PostgreSQL container not running. Run 'localcloud start' first")
+	}
+
+	// Create backup inside container first
+	tempFile := "/tmp/backup.sql"
+	cmd := exec.Command("docker", "exec", containerName,
+		"pg_dump", "-U", "localcloud", "-d", "localcloud",
+		"--clean", "--if-exists", "--no-owner", "--no-acl",
+		"-f", tempFile)
+
+	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("backup failed: %w\n%s", err, output)
 	}
 
+	// Copy backup file from container to host
+	copyCmd := exec.Command("docker", "cp",
+		fmt.Sprintf("%s:%s", containerName, tempFile), outputPath)
+
+	if output, err := copyCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to copy backup: %w\n%s", err, output)
+	}
+
+	// Clean up temp file in container
+	exec.Command("docker", "exec", containerName, "rm", tempFile).Run()
+
+	fmt.Printf("Backup created successfully: %s\n", outputPath)
 	return nil
 }
 
@@ -94,19 +127,51 @@ func (c *Client) Restore(inputPath string) error {
 		return fmt.Errorf("backup file not found: %w", err)
 	}
 
-	// Check if psql is available
-	if _, err := exec.LookPath("psql"); err != nil {
-		return fmt.Errorf("psql not found. Please install PostgreSQL client tools")
+	// Try native psql first
+	if _, err := exec.LookPath("psql"); err == nil {
+		cmd := exec.Command("psql", c.service.connString, "-f", inputPath)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("restore failed: %w\n%s", err, output)
+		}
+		return nil
+	}
+
+	// Fallback to Docker exec
+	fmt.Println("Restoring via Docker...")
+
+	containerName := "localcloud-postgres"
+
+	// Check if container is running
+	checkCmd := exec.Command("docker", "ps", "-q", "-f", "name="+containerName)
+	output, err := checkCmd.Output()
+	if err != nil || len(output) == 0 {
+		return fmt.Errorf("PostgreSQL container not running. Run 'localcloud start' first")
+	}
+
+	// Copy backup file to container
+	tempFile := "/tmp/restore.sql"
+	copyCmd := exec.Command("docker", "cp", inputPath,
+		fmt.Sprintf("%s:%s", containerName, tempFile))
+
+	if output, err := copyCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to copy backup file: %w\n%s", err, output)
 	}
 
 	// Run psql to restore
-	cmd := exec.Command("psql", c.service.connString, "-f", inputPath)
+	cmd := exec.Command("docker", "exec", containerName,
+		"psql", "-U", "localcloud", "-d", "localcloud", "-f", tempFile)
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
+	if output, err := cmd.CombinedOutput(); err != nil {
+		// Clean up temp file even on error
+		exec.Command("docker", "exec", containerName, "rm", tempFile).Run()
 		return fmt.Errorf("restore failed: %w\n%s", err, output)
 	}
 
+	// Clean up temp file in container
+	exec.Command("docker", "exec", containerName, "rm", tempFile).Run()
+
+	fmt.Println("Database restored successfully")
 	return nil
 }
 
