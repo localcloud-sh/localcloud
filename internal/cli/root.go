@@ -66,6 +66,7 @@ func init() {
 	rootCmd.AddCommand(psCmd)
 	rootCmd.AddCommand(modelsCmd)
 	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(storageCmd)
 }
 
 func initConfig() {

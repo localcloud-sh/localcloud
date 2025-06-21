@@ -88,7 +88,14 @@ func (m *Manager) InitializeProject() error {
 
 // StartServices delegates to service manager
 func (m *Manager) StartServices(progress chan<- ServiceProgress) error {
+	fmt.Println("DEBUG: Manager.StartServices (ALL) called")
 	return m.services.StartAll(progress)
+}
+
+// StartSelectedServices starts only the specified services
+func (m *Manager) StartSelectedServices(services []string, progress chan<- ServiceProgress) error {
+	fmt.Printf("DEBUG: Manager.StartSelectedServices called with: %v\n", services)
+	return m.services.StartSelectedServices(services, progress)
 }
 
 // StopServices delegates to service manager

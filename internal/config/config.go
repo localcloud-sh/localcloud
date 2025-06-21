@@ -190,6 +190,11 @@ services:
     port: 6379
     maxmemory: "512mb"
 
+  storage:
+    type: minio
+    port: 9000
+    console: 9001
+
 resources:
   memory_limit: "4GB"
   cpu_limit: "2"

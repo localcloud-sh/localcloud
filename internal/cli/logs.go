@@ -40,7 +40,7 @@ func init() {
 
 func runLogs(cmd *cobra.Command, args []string) error {
 	// Check if project is initialized
-	if !isProjectInitialized() {
+	if !IsProjectInitialized() {
 		return fmt.Errorf("no LocalCloud project found")
 	}
 

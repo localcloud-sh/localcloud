@@ -22,7 +22,7 @@ var statusCmd = &cobra.Command{
 
 func runStatus(cmd *cobra.Command, args []string) error {
 	// Check if project is initialized
-	if !isProjectInitialized() {
+	if !IsProjectInitialized() {
 		return fmt.Errorf("no LocalCloud project found")
 	}
 
@@ -78,7 +78,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			// Format memory
 			memoryStr := "-"
 			if s.MemoryUsage > 0 {
-				memoryStr = formatBytes(int64(s.MemoryUsage))
+				memoryStr = FormatBytes(int64(s.MemoryUsage))
 			}
 
 			// Format CPU
@@ -116,7 +116,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	if runningCount > 0 {
 		fmt.Printf("\nTotal: %d services running | CPU: %.1f%% | Memory: %s\n",
-			runningCount, totalCPU, formatBytes(int64(totalMemory)))
+			runningCount, totalCPU, FormatBytes(int64(totalMemory)))
 	}
 
 	return nil

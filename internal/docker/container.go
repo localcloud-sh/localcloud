@@ -302,12 +302,16 @@ func (m *containerManager) Exists(name string) (bool, string, error) {
 // WaitHealthy waits for a container to become healthy
 func (m *containerManager) WaitHealthy(containerID string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	checkCount := 0
 
 	for time.Now().Before(deadline) {
+		checkCount++
 		info, err := m.Inspect(containerID)
 		if err != nil {
 			return err
 		}
+
+		fmt.Printf("DEBUG: Health check #%d - State: %s, Health: %s\n", checkCount, info.State, info.Health)
 
 		if info.State != "running" {
 			return fmt.Errorf("container is not running: %s", info.State)
@@ -319,11 +323,19 @@ func (m *containerManager) WaitHealthy(containerID string, timeout time.Duration
 		}
 
 		if info.Health == "unhealthy" {
+			// Get last health check log
+			inspect, _ := m.client.docker.ContainerInspect(m.client.ctx, containerID)
+			if len(inspect.State.Health.Log) > 0 {
+				lastLog := inspect.State.Health.Log[len(inspect.State.Health.Log)-1]
+				fmt.Printf("DEBUG: Last health check output: %s\n", lastLog.Output)
+			}
 			return fmt.Errorf("container is unhealthy")
 		}
 
 		// Still starting, wait a bit
-		time.Sleep(1 * time.Second)
+		fmt.Printf("DEBUG: Waiting for health check... (%d seconds remaining)\n",
+			int(deadline.Sub(time.Now()).Seconds()))
+		time.Sleep(3 * time.Second)
 	}
 
 	return fmt.Errorf("timeout waiting for container to become healthy")

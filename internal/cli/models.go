@@ -5,125 +5,112 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/briandowns/spinner"
+	"github.com/localcloud/localcloud/internal/config"
+	"github.com/localcloud/localcloud/internal/models"
 	"github.com/spf13/cobra"
 )
 
 var modelsCmd = &cobra.Command{
-	Use:   "models",
-	Short: "Manage AI models",
-	Long:  `Download, list, and manage AI models for use with LocalCloud.`,
+	Use:     "models",
+	Short:   "Manage AI models",
+	Aliases: []string{"model", "m"},
+	Long: `Manage AI models for LocalCloud.
+	
+Download, list, and remove AI models. Models are stored locally and can be used
+across all your LocalCloud projects.`,
 }
 
 var modelsListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List available AI models",
-	Long:  `Display all available AI models that can be used with LocalCloud.`,
-	RunE:  runModelsList,
+	Use:     "list",
+	Short:   "List available models",
+	Aliases: []string{"ls"},
+	Long:    `List all locally available AI models and recommended models to download.`,
+	RunE:    runModelsList,
 }
 
 var modelsPullCmd = &cobra.Command{
-	Use:   "pull [model]",
-	Short: "Download an AI model",
-	Long:  `Download an AI model to use with LocalCloud. Models are cached locally.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runModelsPull,
-	Example: `  localcloud models pull qwen2.5:3b
-  localcloud models pull deepseek-coder:1.3b`,
+	Use:     "pull [model-name]",
+	Short:   "Download a model",
+	Aliases: []string{"download", "get"},
+	Long:    `Download an AI model from the Ollama library.`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runModelsPull,
 }
 
 var modelsRemoveCmd = &cobra.Command{
-	Use:   "remove [model]",
-	Short: "Remove a downloaded model",
-	Long:  `Remove a downloaded AI model to free up disk space.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runModelsRemove,
+	Use:     "remove [model-name]",
+	Short:   "Remove a model",
+	Aliases: []string{"rm", "delete"},
+	Long:    `Remove a locally stored AI model.`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runModelsRemove,
+}
+
+var modelsInfoCmd = &cobra.Command{
+	Use:   "info",
+	Short: "Show model information",
+	Long:  `Display information about available models and AI provider status.`,
+	RunE:  runModelsInfo,
 }
 
 func init() {
-	// Add subcommands to models command
 	modelsCmd.AddCommand(modelsListCmd)
 	modelsCmd.AddCommand(modelsPullCmd)
 	modelsCmd.AddCommand(modelsRemoveCmd)
+	modelsCmd.AddCommand(modelsInfoCmd)
 }
 
 func runModelsList(cmd *cobra.Command, args []string) error {
-	// Available models data
-	models := []struct {
-		name        string
-		size        string
-		description string
-		downloaded  bool
-	}{
-		{
-			name:        "qwen2.5:3b",
-			size:        "2.3GB",
-			description: "Fast general purpose model",
-			downloaded:  true,
-		},
-		{
-			name:        "deepseek-coder:1.3b",
-			size:        "1.5GB",
-			description: "Code completion model",
-			downloaded:  false,
-		},
-		{
-			name:        "llama3.2:3b",
-			size:        "2.0GB",
-			description: "Latest Llama model",
-			downloaded:  false,
-		},
-		{
-			name:        "phi3:mini",
-			size:        "2.3GB",
-			description: "Microsoft's efficient model",
-			downloaded:  false,
-		},
-		{
-			name:        "mistral:7b",
-			size:        "4.1GB",
-			description: "Powerful open model",
-			downloaded:  false,
-		},
-		{
-			name:        "codellama:7b",
-			size:        "3.8GB",
-			description: "Meta's code model",
-			downloaded:  false,
-		},
+	cfg := config.Get()
+	manager := models.NewManager(fmt.Sprintf("http://localhost:%d", cfg.Services.AI.Port))
+
+	// Check if Ollama is available
+	if !manager.IsOllamaAvailable() {
+		printWarning("Ollama service is not running. Start it with 'lc start'")
+		fmt.Println()
+		showRecommendedModels()
+		return nil
 	}
 
-	// Create a tabwriter for aligned output
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+	// Get installed models
+	modelList, err := manager.List()
+	if err != nil {
+		return fmt.Errorf("failed to list models: %w", err)
+	}
 
-	fmt.Println("Available AI Models:")
-	fmt.Println(strings.Repeat("─", 70))
-	fmt.Fprintln(w, "MODEL\tSIZE\tDESCRIPTION\tSTATUS\t")
-	fmt.Fprintln(w, "─────\t────\t───────────\t──────\t")
+	if len(modelList) == 0 {
+		printInfo("No models installed yet")
+		fmt.Println()
+		showRecommendedModels()
+		return nil
+	}
 
-	for _, m := range models {
-		status := "Not downloaded"
-		statusColor := warningColor
-		if m.downloaded {
-			status = "Ready"
-			statusColor = successColor
+	// Display installed models
+	fmt.Println("\nInstalled Models:")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("%-20s %-10s %s\n", "MODEL", "SIZE", "MODIFIED")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	for _, model := range modelList {
+		size := FormatBytes(model.Size)
+		modified := model.ModifiedAt.Format("2006-01-02 15:04")
+
+		// Highlight active model
+		name := model.Name
+		if name == cfg.Services.AI.Default {
+			name = successColor(name + " ✓")
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t\n",
-			m.name,
-			m.size,
-			m.description,
-			statusColor(status),
-		)
+
+		fmt.Printf("%-20s %-10s %s\n", name, size, modified)
 	}
 
-	w.Flush()
-	fmt.Println(strings.Repeat("─", 70))
 	fmt.Println()
-	fmt.Println("To download a model: localcloud models pull <model-name>")
-	fmt.Println("Recommended for 4GB RAM: qwen2.5:3b, deepseek-coder:1.3b")
+
+	// Show recommended models not yet installed
+	showRecommendedModelsNotInstalled(modelList)
 
 	return nil
 }
@@ -131,41 +118,110 @@ func runModelsList(cmd *cobra.Command, args []string) error {
 func runModelsPull(cmd *cobra.Command, args []string) error {
 	modelName := args[0]
 
-	// Validate model name
-	validModels := map[string]string{
-		"qwen2.5:3b":        "2.3GB",
-		"deepseek-coder:1.3b": "1.5GB",
-		"llama3.2:3b":       "2.0GB",
-		"phi3:mini":         "2.3GB",
-		"mistral:7b":        "4.1GB",
-		"codellama:7b":      "3.8GB",
+	cfg := config.Get()
+	manager := models.NewManager(fmt.Sprintf("http://localhost:%d", cfg.Services.AI.Port))
+
+	// Check if Ollama is available
+	if !manager.IsOllamaAvailable() {
+		return fmt.Errorf("Ollama service is not running. Start it with 'lc start'")
 	}
 
-	size, exists := validModels[modelName]
-	if !exists {
-		return fmt.Errorf("unknown model '%s'. Run 'localcloud models list' to see available models", modelName)
+	// Check if model already exists
+	existingModels, _ := manager.List()
+	for _, m := range existingModels {
+		if m.Name == modelName {
+			printInfo(fmt.Sprintf("Model '%s' is already installed", modelName))
+			return nil
+		}
 	}
 
-	fmt.Printf("Pulling %s (%s)...\n", modelName, size)
+	printInfo(fmt.Sprintf("Pulling model '%s'...", modelName))
+	fmt.Println("This may take a few minutes depending on the model size and your internet connection.")
 
-	// Progress bar simulation
-	progressBar := func(percent int) string {
-		filled := percent / 5
-		bar := strings.Repeat("=", filled) + ">" + strings.Repeat(" ", 20-filled)
-		return fmt.Sprintf("[%s] %d%%", bar, percent)
+	// Create progress channel
+	progress := make(chan models.PullProgress)
+	done := make(chan error)
+
+	// Start pull in goroutine
+	go func() {
+		done <- manager.Pull(modelName, progress)
+	}()
+
+	// Progress bar
+	s := spinner.New(spinner.CharSets[14], 100)
+	s.Suffix = " Connecting..."
+	s.Start()
+
+	var lastStatus string
+	startTime := time.Now()
+
+	for {
+		select {
+		case p, ok := <-progress:
+			if !ok {
+				s.Stop()
+				goto finished
+			}
+
+			// Update spinner based on status
+			if p.Status != lastStatus {
+				s.Stop()
+
+				switch p.Status {
+				case "pulling manifest":
+					s.Suffix = " Fetching manifest..."
+				case "downloading":
+					s.Suffix = " Starting download..."
+				case "verifying":
+					s.Suffix = " Verifying..."
+				case "writing manifest":
+					s.Suffix = " Finalizing..."
+				case "success":
+					printSuccess("Model pulled successfully!")
+					continue
+				default:
+					s.Suffix = fmt.Sprintf(" %s...", p.Status)
+				}
+
+				s.Start()
+				lastStatus = p.Status
+			}
+
+			// Show download progress
+			if p.Total > 0 && p.Status == "downloading" {
+				s.Stop()
+
+				// Calculate speed
+				elapsed := time.Since(startTime).Seconds()
+				speed := float64(p.Completed) / elapsed / 1024 / 1024 // MB/s
+
+				// Progress bar
+				barWidth := 30
+				filled := int(float64(barWidth) * float64(p.Completed) / float64(p.Total))
+				bar := strings.Repeat("=", filled) + strings.Repeat("-", barWidth-filled)
+
+				fmt.Printf("\r[%s] %d%% | %s / %s | %.1f MB/s",
+					bar,
+					p.Percentage,
+					FormatBytes(p.Completed),
+					FormatBytes(p.Total),
+					speed,
+				)
+			}
+
+		case err := <-done:
+			s.Stop()
+			if err != nil {
+				return fmt.Errorf("failed to pull model: %w", err)
+			}
+			goto finished
+		}
 	}
 
-	// Simulate download with progress
-	for i := 0; i <= 100; i += 5 {
-		fmt.Printf("\r%s", progressBar(i))
-		time.Sleep(100 * time.Millisecond)
-	}
-	fmt.Println()
-
-	printSuccess(fmt.Sprintf("Successfully pulled %s", modelName))
-	fmt.Println()
-	fmt.Println("Model is ready to use. Start LocalCloud to begin:")
-	fmt.Println("  localcloud start")
+finished:
+	fmt.Println() // New line after progress
+	duration := time.Since(startTime)
+	printSuccess(fmt.Sprintf("Model '%s' pulled successfully in %s!", modelName, duration.Round(time.Second)))
 
 	return nil
 }
@@ -173,46 +229,141 @@ func runModelsPull(cmd *cobra.Command, args []string) error {
 func runModelsRemove(cmd *cobra.Command, args []string) error {
 	modelName := args[0]
 
-	// Check if model exists
-	validModels := []string{
-		"qwen2.5:3b",
-		"deepseek-coder:1.3b",
-		"llama3.2:3b",
-		"phi3:mini",
-		"mistral:7b",
-		"codellama:7b",
+	cfg := config.Get()
+	manager := models.NewManager(fmt.Sprintf("http://localhost:%d", cfg.Services.AI.Port))
+
+	// Check if Ollama is available
+	if !manager.IsOllamaAvailable() {
+		return fmt.Errorf("Ollama service is not running. Start it with 'lc start'")
 	}
 
-	isValid := false
-	for _, m := range validModels {
-		if m == modelName {
-			isValid = true
-			break
-		}
-	}
-
-	if !isValid {
-		return fmt.Errorf("model '%s' not found", modelName)
-	}
-
-	// Confirmation prompt
-	fmt.Printf("Are you sure you want to remove %s? (y/N): ", modelName)
+	// Confirm removal
+	fmt.Printf("Are you sure you want to remove model '%s'? [y/N]: ", modelName)
 	var response string
 	fmt.Scanln(&response)
 
 	if strings.ToLower(response) != "y" {
-		fmt.Println("Cancelled")
+		printInfo("Removal cancelled")
 		return nil
 	}
 
-	// Simulate removal
-	s := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
+	// Remove model
+	s := spinner.New(spinner.CharSets[14], 100)
 	s.Suffix = fmt.Sprintf(" Removing %s...", modelName)
 	s.Start()
-	time.Sleep(1 * time.Second)
-	s.Stop()
 
-	printSuccess(fmt.Sprintf("Removed model %s", modelName))
+	if err := manager.Remove(modelName); err != nil {
+		s.Stop()
+		return fmt.Errorf("failed to remove model: %w", err)
+	}
+
+	s.Stop()
+	printSuccess(fmt.Sprintf("Model '%s' removed successfully", modelName))
 
 	return nil
+}
+
+func runModelsInfo(cmd *cobra.Command, args []string) error {
+	cfg := config.Get()
+	manager := models.NewManager(fmt.Sprintf("http://localhost:%d", cfg.Services.AI.Port))
+
+	fmt.Println("\nAI Provider Information:")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	// Check providers
+	provider := manager.DetectProvider()
+
+	// Ollama status
+	if manager.IsOllamaAvailable() {
+		fmt.Printf("Ollama Status: %s\n", successColor("Running ✓"))
+		fmt.Printf("Ollama Endpoint: %s\n", infoColor(fmt.Sprintf("http://localhost:%d", cfg.Services.AI.Port)))
+
+		// Count models
+		modelList, _ := manager.List()
+		fmt.Printf("Installed Models: %s\n", infoColor(fmt.Sprintf("%d", len(modelList))))
+	} else {
+		fmt.Printf("Ollama Status: %s\n", errorColor("Not Running ✗"))
+	}
+
+	// OpenAI status
+	if os.Getenv("OPENAI_API_KEY") != "" {
+		fmt.Printf("\nOpenAI Status: %s\n", successColor("API Key Found ✓"))
+		fmt.Printf("API Key: %s\n", infoColor(maskAPIKey(os.Getenv("OPENAI_API_KEY"))))
+	} else {
+		fmt.Printf("\nOpenAI Status: %s\n", warningColor("No API Key"))
+	}
+
+	// Active provider
+	fmt.Printf("\nActive Provider: %s\n", infoColor(string(provider)))
+
+	// Configuration
+	fmt.Println("\nConfiguration:")
+	fmt.Printf("Default Model: %s\n", infoColor(cfg.Services.AI.Default))
+	fmt.Printf("Configured Models: %s\n", infoColor(strings.Join(cfg.Services.AI.Models, ", ")))
+
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	return nil
+}
+
+// Helper functions
+
+func showRecommendedModels() {
+	fmt.Println("Recommended Models:")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("%-20s %-10s %s\n", "MODEL", "SIZE", "DESCRIPTION")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	for _, model := range models.GetRecommendedModels() {
+		fmt.Printf("%-20s %-10s %s\n",
+			infoColor(model.Name),
+			model.Size,
+			model.Description,
+		)
+	}
+
+	fmt.Println("\nTo download a model, run:")
+	fmt.Println("  lc models pull <model-name>")
+}
+
+func showRecommendedModelsNotInstalled(installed []models.Model) {
+	recommended := models.GetRecommendedModels()
+	notInstalled := []struct {
+		Name        string
+		Size        string
+		Description string
+	}{}
+
+	// Find recommended models not installed
+	for _, rec := range recommended {
+		found := false
+		for _, inst := range installed {
+			if inst.Name == rec.Name || inst.Model == rec.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			notInstalled = append(notInstalled, rec)
+		}
+	}
+
+	if len(notInstalled) > 0 {
+		fmt.Println("Recommended models to try:")
+		for _, model := range notInstalled {
+			fmt.Printf("  • %s (%s) - %s\n",
+				infoColor(model.Name),
+				model.Size,
+				model.Description,
+			)
+		}
+		fmt.Println("\nTo download: lc models pull <model-name>")
+	}
+}
+
+func maskAPIKey(key string) string {
+	if len(key) <= 8 {
+		return "***"
+	}
+	return key[:4] + "..." + key[len(key)-4:]
 }

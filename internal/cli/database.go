@@ -67,7 +67,7 @@ func init() {
 
 func runDBConnect(cmd *cobra.Command, args []string) error {
 	// Check if project is initialized
-	if !isProjectInitialized() {
+	if !IsProjectInitialized() {
 		return fmt.Errorf("no LocalCloud project found")
 	}
 
@@ -103,7 +103,7 @@ func runDBConnect(cmd *cobra.Command, args []string) error {
 
 func runDBBackup(cmd *cobra.Command, args []string) error {
 	// Check if project is initialized
-	if !isProjectInitialized() {
+	if !IsProjectInitialized() {
 		return fmt.Errorf("no LocalCloud project found")
 	}
 
@@ -141,7 +141,7 @@ func runDBRestore(cmd *cobra.Command, args []string) error {
 	backupFile := args[0]
 
 	// Check if project is initialized
-	if !isProjectInitialized() {
+	if !IsProjectInitialized() {
 		return fmt.Errorf("no LocalCloud project found")
 	}
 
@@ -181,7 +181,7 @@ func runDBRestore(cmd *cobra.Command, args []string) error {
 
 func runDBMigrate(cmd *cobra.Command, args []string) error {
 	// Check if project is initialized
-	if !isProjectInitialized() {
+	if !IsProjectInitialized() {
 		return fmt.Errorf("no LocalCloud project found")
 	}
 
@@ -216,7 +216,7 @@ func runDBMigrate(cmd *cobra.Command, args []string) error {
 
 func runDBStatus(cmd *cobra.Command, args []string) error {
 	// Check if project is initialized
-	if !isProjectInitialized() {
+	if !IsProjectInitialized() {
 		return fmt.Errorf("no LocalCloud project found")
 	}
 

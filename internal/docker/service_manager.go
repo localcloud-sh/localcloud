@@ -89,6 +89,83 @@ func (sm *ServiceManager) StartAll(progress chan<- ServiceProgress) error {
 	return lastError
 }
 
+// StartSelectedServices starts only the specified services
+func (sm *ServiceManager) StartSelectedServices(services []string, progress chan<- ServiceProgress) error {
+	defer close(progress)
+
+	fmt.Printf("DEBUG: ServiceManager.StartSelectedServices called with services: %v\n", services)
+
+	// Initialize project resources
+	fmt.Println("DEBUG: Initializing project resources...")
+	if err := sm.manager.InitializeProject(); err != nil {
+		fmt.Printf("DEBUG: InitializeProject failed: %v\n", err)
+		return err
+	}
+
+	// Validate and normalize service names
+	normalizedServices := []string{}
+	for _, service := range services {
+		normalized := sm.normalizeServiceName(service)
+		if normalized != "" {
+			normalizedServices = append(normalizedServices, normalized)
+		}
+	}
+
+	fmt.Printf("DEBUG: Normalized services to start: %v\n", normalizedServices)
+
+	var lastError error
+	for _, service := range normalizedServices {
+		fmt.Printf("DEBUG: Starting service: %s\n", service)
+
+		progress <- ServiceProgress{
+			Service: service,
+			Status:  "starting",
+		}
+
+		if err := sm.startService(service); err != nil {
+			fmt.Printf("DEBUG: Service %s failed with error: %v\n", service, err)
+			progress <- ServiceProgress{
+				Service: service,
+				Status:  "failed",
+				Error:   err.Error(),
+			}
+			lastError = err
+			continue
+		}
+
+		fmt.Printf("DEBUG: Service %s started successfully\n", service)
+		progress <- ServiceProgress{
+			Service: service,
+			Status:  "started",
+		}
+	}
+
+	if lastError != nil {
+		fmt.Printf("DEBUG: StartSelectedServices completed with errors. Last error: %v\n", lastError)
+	} else {
+		fmt.Println("DEBUG: StartSelectedServices completed successfully")
+	}
+
+	return lastError
+}
+
+// normalizeServiceName converts various service name formats to internal names
+func (sm *ServiceManager) normalizeServiceName(name string) string {
+	switch strings.ToLower(name) {
+	case "ai", "ollama", "models":
+		return "ai"
+	case "database", "db", "postgres", "postgresql":
+		return "database"
+	case "cache", "redis":
+		return "cache"
+	case "storage", "minio", "s3":
+		return "storage"
+	default:
+		fmt.Printf("DEBUG: Unknown service name: %s\n", name)
+		return ""
+	}
+}
+
 // StopAll stops all services
 func (sm *ServiceManager) StopAll(progress chan<- ServiceProgress) error {
 	defer close(progress)

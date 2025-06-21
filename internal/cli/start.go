@@ -12,19 +12,37 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	startService string
+	startOnly    []string
+)
+
 var startCmd = &cobra.Command{
-	Use:   "start",
-	Short: "Start all LocalCloud services",
-	Long:  `Start all configured LocalCloud services for the current project.`,
-	RunE:  runStart,
+	Use:       "start [service]",
+	Short:     "Start LocalCloud services",
+	Long:      `Start all or specific LocalCloud services for the current project.`,
+	Args:      cobra.MaximumNArgs(1),
+	ValidArgs: []string{"ai", "postgres", "redis", "minio", "all"},
+	Example: `  lc start           # Start all services
+  lc start ai        # Start only AI service
+  lc start postgres  # Start only PostgreSQL
+  lc start --only ai,redis  # Start only AI and Redis`,
+	RunE: runStart,
+}
+
+func init() {
+	startCmd.Flags().StringSliceVar(&startOnly, "only", []string{}, "Start only specified services (comma-separated)")
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
-	fmt.Println("RUNSTART CALLED!")
-	fmt.Printf("Verbose flag: %v\n", verbose)
+	if verbose {
+		fmt.Println("DEBUG: runStart called")
+		fmt.Printf("DEBUG: Args: %v\n", args)
+		fmt.Printf("DEBUG: Only flag: %v\n", startOnly)
+	}
 
 	// Check if project is initialized
-	if !isProjectInitialized() {
+	if !IsProjectInitialized() {
 		return fmt.Errorf("no LocalCloud project found. Run 'localcloud init' first")
 	}
 
@@ -32,6 +50,25 @@ func runStart(cmd *cobra.Command, args []string) error {
 	cfg := config.Get()
 	if cfg == nil {
 		return fmt.Errorf("failed to load configuration")
+	}
+
+	// Determine which services to start
+	var servicesToStart []string
+	startAll := true // ← BU SATIR EKSİK!
+
+	if len(args) > 0 && args[0] != "all" {
+		// Single service specified
+		servicesToStart = []string{args[0]}
+		startAll = false // ← BU DA!
+	} else if len(startOnly) > 0 {
+		// --only flag used
+		servicesToStart = startOnly
+		startAll = false // ← BU DA!
+	}
+
+	if verbose {
+		fmt.Printf("DEBUG: Start all: %v\n", startAll)
+		fmt.Printf("DEBUG: Services to start: %v\n", servicesToStart)
 	}
 
 	// Create Docker manager
@@ -57,7 +94,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	// Run startup in goroutine
 	go func() {
-		done <- manager.StartServices(progress)
+		if startAll { // ← servicesToStart[0] == "all" YERİNE startAll
+			done <- manager.StartServices(progress)
+		} else {
+			done <- manager.StartSelectedServices(servicesToStart, progress)
+		}
 	}()
 
 	// Handle progress updates
@@ -68,6 +109,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	hasErrors := false
+	startedServices := make(map[string]bool)
+
 	for {
 		select {
 		case p, ok := <-progress:
@@ -91,6 +134,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 					spin.Stop()
 				}
 				printSuccess(fmt.Sprintf("%s started", p.Service))
+				startedServices[p.Service] = true
 				if spin != nil && !verbose {
 					spin.Start()
 				}
@@ -129,24 +173,30 @@ finished:
 	}
 	fmt.Println()
 
-	// Show service URLs based on config
-	fmt.Println("Services:")
-	fmt.Printf("  • AI Models:    http://localhost:%d\n", cfg.Services.AI.Port)
+	// Show only started services URLs
+	if len(startedServices) > 0 {
+		fmt.Println("Services:")
 
-	if cfg.Services.Database.Type != "" {
-		fmt.Printf("  • PostgreSQL:   localhost:%d\n", cfg.Services.Database.Port)
+		if startedServices["ai"] {
+			fmt.Printf("  • AI Models:    http://localhost:%d\n", cfg.Services.AI.Port)
+		}
+
+		if startedServices["postgres"] && cfg.Services.Database.Type != "" {
+			fmt.Printf("  • PostgreSQL:   localhost:%d\n", cfg.Services.Database.Port)
+		}
+
+		if startedServices["redis"] && cfg.Services.Cache.Type != "" {
+			fmt.Printf("  • Redis:        localhost:%d\n", cfg.Services.Cache.Port)
+		}
+
+		if startedServices["minio"] && cfg.Services.Storage.Type != "" {
+			fmt.Printf("  • MinIO:        http://localhost:%d (console: %d)\n",
+				cfg.Services.Storage.Port, cfg.Services.Storage.Console)
+		}
+
+		fmt.Println()
 	}
 
-	if cfg.Services.Cache.Type != "" {
-		fmt.Printf("  • Redis:        localhost:%d\n", cfg.Services.Cache.Port)
-	}
-
-	if cfg.Services.Storage.Type != "" {
-		fmt.Printf("  • MinIO:        http://localhost:%d (console: %d)\n",
-			cfg.Services.Storage.Port, cfg.Services.Storage.Console)
-	}
-
-	fmt.Println()
 	fmt.Println("Run 'localcloud status' to check service health")
 	fmt.Println("Run 'localcloud logs' to view service logs")
 
