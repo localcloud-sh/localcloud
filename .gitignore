@@ -81,4 +81,5 @@ go.sum
 go.sum.backup
 # Temporary folders
 tmp/
-temp/ 
+temp/
+.localcloud/tunnels/

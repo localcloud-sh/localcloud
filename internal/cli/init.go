@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/briandowns/spinner"
 	"github.com/localcloud/localcloud/internal/config"
 	"github.com/spf13/cobra"
-	"time"
 )
 
 var initCmd = &cobra.Command{
@@ -52,7 +52,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create .localcloud directory: %w", err)
 	}
 
-	// Create config file (will be properly implemented in Task 3)
+	// Create config file
 	configFile := filepath.Join(configPath, "config.yaml")
 	configContent := config.GenerateDefault(projectName, "general")
 	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
@@ -64,6 +64,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	gitignore := filepath.Join(projectDir, ".gitignore")
 	gitignoreContent := `.localcloud/data/
 .localcloud/logs/
+.localcloud/tunnels/
 .env.local
 *.log
 `
@@ -78,8 +79,12 @@ func runInit(cmd *cobra.Command, args []string) error {
 	printSuccess(fmt.Sprintf("Initialized LocalCloud project: %s", projectName))
 	fmt.Println()
 	fmt.Println("Next steps:")
-	fmt.Println("  1. cd", projectDir)
-	fmt.Println("  2. localcloud start")
+	if len(args) > 0 {
+		fmt.Printf("  1. cd %s\n", projectName)
+		fmt.Println("  2. localcloud start")
+	} else {
+		fmt.Println("  1. localcloud start")
+	}
 	fmt.Println()
 	fmt.Println("For more information, run: localcloud --help")
 

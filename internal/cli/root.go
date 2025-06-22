@@ -67,6 +67,8 @@ func init() {
 	rootCmd.AddCommand(modelsCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(storageCmd)
+	rootCmd.AddCommand(infoCmd)   // NEW: Add info command
+	rootCmd.AddCommand(tunnelCmd) // NEW: Add tunnel command
 }
 
 func initConfig() {

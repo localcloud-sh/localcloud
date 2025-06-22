@@ -9,12 +9,15 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/localcloud/localcloud/internal/config"
 	"github.com/localcloud/localcloud/internal/docker"
+	"github.com/localcloud/localcloud/internal/network"
 	"github.com/spf13/cobra"
 )
 
 var (
 	startService string
 	startOnly    []string
+	noTunnel     bool
+	showInfo     bool
 )
 
 var startCmd = &cobra.Command{
@@ -32,6 +35,8 @@ var startCmd = &cobra.Command{
 
 func init() {
 	startCmd.Flags().StringSliceVar(&startOnly, "only", []string{}, "Start only specified services (comma-separated)")
+	startCmd.Flags().BoolVar(&noTunnel, "no-tunnel", false, "Don't start tunnel connection")
+	startCmd.Flags().BoolVar(&showInfo, "info", true, "Show connection info after start")
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
@@ -54,16 +59,16 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	// Determine which services to start
 	var servicesToStart []string
-	startAll := true // ← BU SATIR EKSİK!
+	startAll := true
 
 	if len(args) > 0 && args[0] != "all" {
 		// Single service specified
 		servicesToStart = []string{args[0]}
-		startAll = false // ← BU DA!
+		startAll = false
 	} else if len(startOnly) > 0 {
 		// --only flag used
 		servicesToStart = startOnly
-		startAll = false // ← BU DA!
+		startAll = false
 	}
 
 	if verbose {
@@ -94,7 +99,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	// Run startup in goroutine
 	go func() {
-		if startAll { // ← servicesToStart[0] == "all" YERİNE startAll
+		if startAll {
 			done <- manager.StartServices(progress)
 		} else {
 			done <- manager.StartSelectedServices(servicesToStart, progress)
@@ -173,6 +178,66 @@ finished:
 	}
 	fmt.Println()
 
+	// Start connectivity services if enabled
+	if cfg.Connectivity != nil && cfg.Connectivity.Enabled && !noTunnel {
+		if err := startConnectivity(ctx, cfg); err != nil {
+			printWarning(fmt.Sprintf("Connectivity setup failed: %v", err))
+		}
+	}
+
+	// Show connection info if requested
+	if showInfo {
+		showStartedServicesInfo(cfg, startedServices)
+	}
+
+	return nil
+}
+
+func startConnectivity(ctx context.Context, cfg *config.Config) error {
+	// Create connectivity manager
+	connMgr, err := network.NewConnectivityManager(cfg)
+	if err != nil {
+		return err
+	}
+
+	// Register services
+	if cfg.Services.AI.Port > 0 {
+		connMgr.RegisterService("ai", cfg.Services.AI.Port)
+	}
+	if cfg.Services.Database.Type != "" && cfg.Services.Database.Port > 0 {
+		connMgr.RegisterService("postgres", cfg.Services.Database.Port)
+	}
+	if cfg.Services.Cache.Type != "" && cfg.Services.Cache.Port > 0 {
+		connMgr.RegisterService("redis", cfg.Services.Cache.Port)
+	}
+	if cfg.Services.Storage.Type != "" {
+		connMgr.RegisterService("minio", cfg.Services.Storage.Port)
+		connMgr.RegisterService("minio-console", cfg.Services.Storage.Console)
+	}
+
+	// Register default web/api ports
+	connMgr.RegisterService("web", 3000)
+	connMgr.RegisterService("api", 8080)
+
+	// Start connectivity services
+	if err := connMgr.Start(ctx); err != nil {
+		return err
+	}
+
+	// Show tunnel info if established
+	info, err := connMgr.GetConnectionInfo()
+	if err == nil && len(info.TunnelURLs) > 0 {
+		fmt.Println()
+		for _, url := range info.TunnelURLs {
+			printSuccess(fmt.Sprintf("Public URL: %s", url))
+			break
+		}
+	}
+
+	return nil
+}
+
+func showStartedServicesInfo(cfg *config.Config, startedServices map[string]bool) {
 	// Show only started services URLs
 	if len(startedServices) > 0 {
 		fmt.Println("Services:")
@@ -197,8 +262,7 @@ finished:
 		fmt.Println()
 	}
 
+	fmt.Println("Run 'localcloud info' for detailed connection information")
 	fmt.Println("Run 'localcloud status' to check service health")
 	fmt.Println("Run 'localcloud logs' to view service logs")
-
-	return nil
 }
