@@ -11,6 +11,153 @@ import (
 	"unicode"
 )
 
+// Common error types
+var (
+	ErrDockerNotRunning = &CLIError{
+		Type:    "docker_not_running",
+		Message: "Docker is not running",
+		Solution: `Start Docker:
+  - macOS/Windows: Open Docker Desktop
+  - Linux: sudo systemctl start docker
+
+For installation: https://docs.docker.com/get-docker/`,
+	}
+
+	ErrPortInUse = &CLIError{
+		Type:    "port_in_use",
+		Message: "Port already in use",
+	}
+
+	ErrInsufficientMemory = &CLIError{
+		Type:    "insufficient_memory",
+		Message: "Insufficient memory",
+		Solution: `LocalCloud requires at least 4GB of RAM.
+
+To free up memory:
+  - Close unnecessary applications
+  - Use smaller AI models (gemma2:2b, phi3:mini)
+  - Reduce memory limits in config`,
+	}
+
+	ErrDiskSpace = &CLIError{
+		Type:    "disk_space",
+		Message: "Insufficient disk space",
+		Solution: `Free up disk space:
+  - Remove unused Docker images: docker system prune -a
+  - Clear logs: rm -rf .localcloud/logs/*
+  - Remove unused models: lc models remove <model>`,
+	}
+)
+
+// CLIError represents a structured error with solutions
+type CLIError struct {
+	Type     string
+	Message  string
+	Solution string
+	Details  map[string]interface{}
+}
+
+func (e *CLIError) Error() string {
+	return e.Message
+}
+
+// FormatError formats an error with helpful information
+func FormatError(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	// Check if it's a CLI error
+	if cliErr, ok := err.(*CLIError); ok {
+		return formatCLIError(cliErr)
+	}
+
+	// Check for common error patterns
+	errStr := err.Error()
+
+	// Docker not running
+	if strings.Contains(errStr, "Cannot connect to the Docker daemon") ||
+		strings.Contains(errStr, "Docker daemon not running") {
+		return formatCLIError(ErrDockerNotRunning)
+	}
+
+	// Port in use
+	if strings.Contains(errStr, "bind: address already in use") {
+		// Try to extract port number
+		port := extractPort(errStr)
+		portErr := *ErrPortInUse
+		portErr.Message = fmt.Sprintf("Port %s already in use", port)
+		portErr.Solution = fmt.Sprintf(`This usually means another service is using port %s.
+
+To fix this:
+1. Find the process: lsof -i :%s
+2. Stop the process or change the port in .localcloud/config.yaml
+3. Run 'lc doctor' to check all ports`, port, port)
+		return formatCLIError(&portErr)
+	}
+
+	// Memory issues
+	if strings.Contains(errStr, "out of memory") ||
+		strings.Contains(errStr, "cannot allocate memory") {
+		return formatCLIError(ErrInsufficientMemory)
+	}
+
+	// Disk space
+	if strings.Contains(errStr, "no space left on device") {
+		return formatCLIError(ErrDiskSpace)
+	}
+
+	// Default formatting
+	return fmt.Sprintf("%s %s", errorColor("Error:"), err.Error())
+}
+
+// formatCLIError formats a CLIError with colors and structure
+func formatCLIError(err *CLIError) string {
+	var output strings.Builder
+
+	// Error message
+	output.WriteString(fmt.Sprintf("\n%s %s\n", errorColor("Error:"), err.Message))
+
+	// Solution if available
+	if err.Solution != "" {
+		output.WriteString(fmt.Sprintf("\n%s\n", warningColor("To fix this:")))
+		lines := strings.Split(err.Solution, "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) != "" {
+				output.WriteString(fmt.Sprintf("%s\n", line))
+			}
+		}
+	}
+
+	// Help command
+	output.WriteString(fmt.Sprintf("\n%s\n", infoColor("For more help: lc doctor")))
+
+	return output.String()
+}
+
+// extractPort tries to extract port number from error message
+func extractPort(errStr string) string {
+	// Look for patterns like :3000 or port 3000
+	parts := strings.Split(errStr, ":")
+	for i, part := range parts {
+		// Check if next part might be a port number
+		if i+1 < len(parts) {
+			portStr := strings.TrimSpace(parts[i+1])
+			// Extract just the number part
+			for j, ch := range portStr {
+				if !unicode.IsDigit(ch) {
+					portStr = portStr[:j]
+					break
+				}
+			}
+			if portStr != "" && len(portStr) <= 5 {
+				return portStr
+			}
+		}
+	}
+	return "unknown"
+}
+
 // IsProjectInitialized checks if the current directory is a LocalCloud project
 func IsProjectInitialized() bool {
 	configPath := filepath.Join(projectPath, ".localcloud", "config.yaml")

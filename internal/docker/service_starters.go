@@ -24,12 +24,16 @@ type ServiceStarter interface {
 
 // AIServiceStarter handles AI service startup
 type AIServiceStarter struct {
-	manager *Manager
+	manager        *Manager
+	restartManager *RestartManager
 }
 
 // NewAIServiceStarter creates a new AI service starter
 func NewAIServiceStarter(m *Manager) ServiceStarter {
-	return &AIServiceStarter{manager: m}
+	return &AIServiceStarter{
+		manager:        m,
+		restartManager: GetGlobalRestartManager(),
+	}
 }
 
 // Start starts the AI service

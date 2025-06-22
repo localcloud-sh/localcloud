@@ -69,6 +69,9 @@ func init() {
 	rootCmd.AddCommand(storageCmd)
 	rootCmd.AddCommand(infoCmd)   // NEW: Add info command
 	rootCmd.AddCommand(tunnelCmd) // NEW: Add tunnel command
+	rootCmd.AddCommand(debugCmd)  // NEW: Add debug command
+	rootCmd.AddCommand(doctorCmd) // NEW: Add doctor command
+	rootCmd.AddCommand(resetCmd)  // NEW: Add reset command
 }
 
 func initConfig() {

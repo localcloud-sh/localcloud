@@ -81,15 +81,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 	manager, err := docker.NewManager(ctx, cfg)
 	if err != nil {
 		if strings.Contains(err.Error(), "Docker daemon not running") {
-			printError("Docker is not running!")
-			fmt.Println("\nPlease start Docker Desktop and try again.")
-			fmt.Println("\nInstallation instructions:")
-			fmt.Println("  macOS:   https://docs.docker.com/desktop/install/mac-install/")
-			fmt.Println("  Windows: https://docs.docker.com/desktop/install/windows-install/")
-			fmt.Println("  Linux:   https://docs.docker.com/engine/install/")
+			fmt.Println(FormatError(ErrDockerNotRunning))
 			return err
 		}
-		return fmt.Errorf("failed to create Docker manager: %w", err)
+		fmt.Println(FormatError(err))
+		return err
 	}
 	defer manager.Close()
 
