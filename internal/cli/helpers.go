@@ -139,7 +139,7 @@ func formatCLIError(err *CLIError) string {
 func extractPort(errStr string) string {
 	// Look for patterns like :3000 or port 3000
 	parts := strings.Split(errStr, ":")
-	for i, part := range parts {
+	for i := range parts {
 		// Check if next part might be a port number
 		if i+1 < len(parts) {
 			portStr := strings.TrimSpace(parts[i+1])
@@ -202,6 +202,12 @@ func FormatBytes(bytes int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// formatTime formats a time to a user-friendly string
+func formatTime(t string) string {
+	// Basic implementation - can be enhanced
+	return t
 }
 
 // truncateString truncates a string to a maximum length

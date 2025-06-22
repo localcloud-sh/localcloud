@@ -24,15 +24,13 @@ type ServiceStarter interface {
 
 // AIServiceStarter handles AI service startup
 type AIServiceStarter struct {
-	manager        *Manager
-	restartManager *RestartManager
+	manager *Manager
 }
 
 // NewAIServiceStarter creates a new AI service starter
 func NewAIServiceStarter(m *Manager) ServiceStarter {
 	return &AIServiceStarter{
-		manager:        m,
-		restartManager: GetGlobalRestartManager(),
+		manager: m,
 	}
 }
 
@@ -76,21 +74,7 @@ func (s *AIServiceStarter) Start() error {
 			"com.localcloud.project": s.manager.config.Project.Name,
 			"com.localcloud.service": "ai",
 		},
-		// Temporarily disable health check
-		// HealthCheck: &HealthCheckConfig{
-		// 	Test:        []string{"CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:11434/api/tags || exit 1"},
-		// 	Interval:    30,
-		// 	Timeout:     30,
-		// 	Retries:     5,
-		// 	StartPeriod: 60,
-		// },
 	}
-
-	// Apply resource limits
-	// Temporarily disable memory limit for AI service
-	// if s.manager.config.Resources.MemoryLimit != "" {
-	//	config.Memory = parseMemoryLimit(s.manager.config.Resources.MemoryLimit)
-	// }
 
 	// Create and start container
 	containerID, err := s.manager.container.Create(config)
@@ -101,11 +85,6 @@ func (s *AIServiceStarter) Start() error {
 	if err := s.manager.container.Start(containerID); err != nil {
 		return err
 	}
-
-	// Wait for health check
-	// if err := s.manager.container.WaitHealthy(containerID, 180*time.Second); err != nil {
-	// 	return err
-	// }
 
 	// Just wait for Ollama to start
 	time.Sleep(10 * time.Second)

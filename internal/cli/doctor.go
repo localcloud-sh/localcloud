@@ -129,26 +129,26 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 func displayDiagnosticResult(result diagnostics.DiagnosticResult) {
 	// Choose icon and color based on status
 	var icon string
-	var statusColor func(string) string
+	var statusColorFunc func(a ...interface{}) string
 
 	switch result.Status {
 	case diagnostics.CheckStatusOK:
 		icon = "✓"
-		statusColor = successColor
+		statusColorFunc = successColor
 	case diagnostics.CheckStatusWarning:
 		icon = "!"
-		statusColor = warningColor
+		statusColorFunc = warningColor
 	case diagnostics.CheckStatusError:
 		icon = "✗"
-		statusColor = errorColor
+		statusColorFunc = errorColor
 	case diagnostics.CheckStatusSkipped:
 		icon = "○"
-		statusColor = color.New(color.FgWhite).SprintFunc()
+		statusColorFunc = color.New(color.FgWhite).SprintFunc()
 	}
 
 	// Display check result
 	fmt.Printf("%s %s: %s\n",
-		statusColor(icon),
+		statusColorFunc(icon),
 		result.Check,
 		result.Message)
 

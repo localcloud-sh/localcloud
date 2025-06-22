@@ -1,3 +1,9 @@
+// 1. Delete internal/diagnostics/system_info.go (it conflicts with system_info_generic.go)
+// The system_info.go file should be removed as it has the same build tags as system_info_generic.go
+
+// 2. Update internal/diagnostics/types.go (remove it if it exists, as types are already in debugger.go)
+
+// 3. Update internal/diagnostics/doctor.go:
 // internal/diagnostics/doctor.go
 package diagnostics
 
@@ -5,12 +11,10 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/docker/docker/client"
@@ -160,8 +164,16 @@ func (d *Doctor) checkDockerVersion() DiagnosticResult {
 	}
 
 	// Check minimum version (20.10)
-	major, _ := strconv.Atoi(strings.Split(version.Version, ".")[0])
-	minor, _ := strconv.Atoi(strings.Split(version.Version, ".")[1])
+	versionParts := strings.Split(version.Version, ".")
+	if len(versionParts) < 2 {
+		return DiagnosticResult{
+			Status:  CheckStatusWarning,
+			Message: fmt.Sprintf("Could not parse Docker version: %s", version.Version),
+		}
+	}
+
+	major, _ := strconv.Atoi(versionParts[0])
+	minor, _ := strconv.Atoi(versionParts[1])
 
 	if major < 20 || (major == 20 && minor < 10) {
 		return DiagnosticResult{
@@ -190,7 +202,7 @@ func (d *Doctor) checkDockerVersion() DiagnosticResult {
 
 // checkSystemResources checks system resources
 func (d *Doctor) checkSystemResources() DiagnosticResult {
-	// Get memory info in a cross-platform way
+	// Get memory info using platform-specific implementation
 	memInfo := getSystemMemoryInfo()
 
 	totalMemGB := float64(memInfo.Total) / (1024 * 1024 * 1024)
@@ -254,6 +266,14 @@ func (d *Doctor) checkSystemResources() DiagnosticResult {
 
 // checkPorts checks if required ports are available
 func (d *Doctor) checkPorts() DiagnosticResult {
+	// Check if config is nil
+	if d.config == nil {
+		return DiagnosticResult{
+			Status:  CheckStatusSkipped,
+			Message: "No configuration available to check ports",
+		}
+	}
+
 	ports := map[string]int{
 		"AI (Ollama)":   d.config.Services.AI.Port,
 		"PostgreSQL":    d.config.Services.Database.Port,
@@ -372,24 +392,13 @@ func (d *Doctor) checkNetwork() DiagnosticResult {
 
 // checkDiskSpace checks available disk space
 func (d *Doctor) checkDiskSpace() DiagnosticResult {
-	var stat syscall.Statfs_t
-	wd, _ := os.Getwd()
-
-	err := syscall.Statfs(wd, &stat)
-	if err != nil {
-		return DiagnosticResult{
-			Status:  CheckStatusError,
-			Message: "Failed to check disk space",
-			Details: map[string]interface{}{
-				"error": err.Error(),
-			},
-		}
-	}
+	// Use platform-specific implementation
+	diskInfo := getSystemDiskInfo()
 
 	// Calculate available space in GB
-	availableGB := float64(stat.Bavail*uint64(stat.Bsize)) / (1024 * 1024 * 1024)
-	totalGB := float64(stat.Blocks*uint64(stat.Bsize)) / (1024 * 1024 * 1024)
-	usedPercent := (1 - float64(stat.Bavail)/float64(stat.Blocks)) * 100
+	availableGB := float64(diskInfo.Free) / (1024 * 1024 * 1024)
+	totalGB := float64(diskInfo.Total) / (1024 * 1024 * 1024)
+	usedPercent := diskInfo.PercentUsed
 
 	// Check minimum disk space (10GB recommended)
 	if availableGB < 5 {
@@ -454,10 +463,10 @@ func (d *Doctor) checkConfiguration() DiagnosticResult {
 			memLimit = val * 1024 * 1024 * 1024
 		}
 
-		var memInfo syscall.Sysinfo_t
-		syscall.Sysinfo(&memInfo)
-		if memLimit > int64(memInfo.Totalram) {
-			issues = append(issues, fmt.Sprintf("Memory limit (%s) exceeds system memory", d.config.Resources.MemoryLimit))
+		// Get system memory using platform-specific implementation
+		memInfo := getSystemMemoryInfo()
+		if memLimit > int64(memInfo.Total) {
+			issues = append(issues, fmt.Sprintf("Memory limit %s exceeds system memory", d.config.Resources.MemoryLimit))
 		}
 	}
 
@@ -538,6 +547,14 @@ func (d *Doctor) checkDependencies() DiagnosticResult {
 
 // checkModelCompatibility checks if configured models are compatible
 func (d *Doctor) checkModelCompatibility() DiagnosticResult {
+	// Check if config is nil
+	if d.config == nil {
+		return DiagnosticResult{
+			Status:  CheckStatusSkipped,
+			Message: "No configuration available to check models",
+		}
+	}
+
 	// Model size requirements
 	modelRequirements := map[string]int64{
 		"qwen2.5:3b":          3 * 1024 * 1024 * 1024, // 3GB
@@ -547,9 +564,9 @@ func (d *Doctor) checkModelCompatibility() DiagnosticResult {
 		"gemma2:2b":           2 * 1024 * 1024 * 1024, // 2GB
 	}
 
-	var memInfo syscall.Sysinfo_t
-	syscall.Sysinfo(&memInfo)
-	availableMemory := memInfo.Freeram
+	// Get system memory info
+	memInfo := getSystemMemoryInfo()
+	availableMemory := memInfo.Free
 
 	warnings := []string{}
 
