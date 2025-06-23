@@ -1,0 +1,19 @@
+name: "AI Chat Application"
+description: "ChatGPT-like interface with streaming responses and conversation history"
+version: "1.0.0"
+minRAM: 4294967296
+minDisk: 5368709120
+services:
+  - ollama
+  - postgres
+models:
+  - name: "qwen2.5:3b"
+    size: 2471886848
+    minRAM: 4294967296
+    recommended: true
+    default: true
+  - name: "llama3.2:3b"
+    size: 2147483648
+    minRAM: 4294967296
+    recommended: false
+    default: false

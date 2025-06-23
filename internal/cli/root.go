@@ -67,11 +67,13 @@ func init() {
 	rootCmd.AddCommand(modelsCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(storageCmd)
-	rootCmd.AddCommand(infoCmd)   // NEW: Add info command
-	rootCmd.AddCommand(tunnelCmd) // NEW: Add tunnel command
-	rootCmd.AddCommand(debugCmd)  // NEW: Add debug command
-	rootCmd.AddCommand(doctorCmd) // NEW: Add doctor command
-	rootCmd.AddCommand(resetCmd)  // NEW: Add reset command
+	rootCmd.AddCommand(infoCmd)
+	rootCmd.AddCommand(tunnelCmd)
+	rootCmd.AddCommand(debugCmd)
+	rootCmd.AddCommand(doctorCmd)
+	rootCmd.AddCommand(resetCmd)
+	// Database command is added in database.go init()
+	// Template commands will be added from main.go
 }
 
 func initConfig() {
@@ -105,4 +107,10 @@ func printWarning(message string) {
 
 func printInfo(message string) {
 	fmt.Println(infoColor("ℹ"), message)
+}
+
+// AddTemplateCommands adds template-related commands to root
+func AddTemplateCommands(setupCmd, templatesCmd *cobra.Command) {
+	rootCmd.AddCommand(setupCmd)
+	rootCmd.AddCommand(templatesCmd)
 }
