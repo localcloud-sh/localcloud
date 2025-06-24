@@ -355,11 +355,13 @@ DATABASE_PORT=%d
 DATABASE_USER=%s
 DATABASE_PASSWORD=%s
 DATABASE_NAME=%s
+DATABASE_URL=postgresql://%s:%s@localhost:%d/%s
 
 # AI Model Configuration
 AI_MODEL=%s
 AI_PORT=%d
 OLLAMA_HOST=http://localhost:%d
+OLLAMA_URL=http://localhost:%d
 
 # Security
 JWT_SECRET=%s
@@ -376,9 +378,14 @@ NODE_ENV=development
 		vars.DatabaseUser,
 		vars.DatabasePassword,
 		vars.DatabaseName,
+		vars.DatabaseUser,     // For DATABASE_URL
+		vars.DatabasePassword, // For DATABASE_URL
+		vars.DatabasePort,     // For DATABASE_URL
+		vars.DatabaseName,     // For DATABASE_URL
 		vars.ModelName,
 		vars.AIPort,
 		vars.AIPort,
+		vars.AIPort, // For OLLAMA_URL
 		vars.JWTSecret,
 	)
 
