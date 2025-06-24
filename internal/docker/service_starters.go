@@ -275,6 +275,93 @@ func NewCacheServiceStarter(m *Manager) ServiceStarter {
 	return &CacheServiceStarter{manager: m}
 }
 
+type QueueServiceStarter struct {
+	manager *Manager
+}
+
+// NewQueueServiceStarter creates a new queue service starter
+func NewQueueServiceStarter(m *Manager) ServiceStarter {
+	return &QueueServiceStarter{manager: m}
+}
+
+// Start starts the queue service
+func (s *QueueServiceStarter) Start() error {
+	if s.manager.config.Services.Queue.Type == "" {
+		return nil // Queue not configured
+	}
+
+	// Check and pull image
+	if err := s.ensureImage("redis:7-alpine"); err != nil {
+		return err
+	}
+
+	// Build Redis command for queue
+	redisCmd := []string{
+		"redis-server",
+		"--maxmemory", s.manager.config.Services.Queue.MaxMemory,
+		"--maxmemory-policy", s.manager.config.Services.Queue.MaxMemoryPolicy,
+	}
+
+	// Add persistence options if enabled
+	if s.manager.config.Services.Queue.Persistence {
+		redisCmd = append(redisCmd,
+			"--appendonly", "yes",
+			"--appendfsync", s.manager.config.Services.Queue.AppendFsync,
+			// RDB snapshots for additional safety
+			"--save", "900", "1", // After 900 sec (15 min) if at least 1 key changed
+			"--save", "300", "10", // After 300 sec (5 min) if at least 10 keys changed
+			"--save", "60", "10000", // After 60 sec if at least 10000 keys changed
+		)
+	}
+
+	// Create container config
+	config := ContainerConfig{
+		Name:    "localcloud-redis-queue",
+		Image:   "redis:7-alpine",
+		Command: redisCmd,
+		Ports: []PortBinding{
+			{
+				ContainerPort: "6379",
+				HostPort:      fmt.Sprintf("%d", s.manager.config.Services.Queue.Port),
+				Protocol:      "tcp",
+			},
+		},
+		Volumes: []VolumeMount{
+			{
+				Source: fmt.Sprintf("localcloud_%s_redis_queue_data", s.manager.config.Project.Name),
+				Target: "/data",
+			},
+		},
+		Networks:      []string{fmt.Sprintf("localcloud_%s_default", s.manager.config.Project.Name)},
+		RestartPolicy: "unless-stopped",
+		HealthCheck: &HealthCheckConfig{
+			Test:     []string{"CMD", "redis-cli", "ping"},
+			Interval: 10,
+			Timeout:  5,
+			Retries:  5,
+		},
+		Labels: map[string]string{
+			"com.localcloud.project": s.manager.config.Project.Name,
+			"com.localcloud.service": "queue",
+			"com.localcloud.type":    "redis-queue",
+		},
+	}
+
+	// Create and start container
+	containerID, err := s.manager.container.Create(config)
+	if err != nil {
+		return err
+	}
+
+	return s.manager.container.Start(containerID)
+}
+
+// ensureImage checks and pulls image if needed
+func (s *QueueServiceStarter) ensureImage(image string) error {
+	starter := &AIServiceStarter{manager: s.manager}
+	return starter.ensureImage(image)
+}
+
 // Start starts the cache service
 func (s *CacheServiceStarter) Start() error {
 	if s.manager.config.Services.Cache.Type == "" {

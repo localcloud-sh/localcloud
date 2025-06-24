@@ -161,9 +161,18 @@ func (m *Manager) getRequiredVolumes() []string {
 	if m.config.Services.Database.Type != "" {
 		volumes = append(volumes, "postgres_data")
 	}
-	if m.config.Services.Cache.Type != "" {
-		volumes = append(volumes, "redis_data")
+
+	// Cache doesn't need volume (memory-only)
+	// Remove this old code:
+	// if m.config.Services.Cache.Type != "" {
+	//     volumes = append(volumes, "redis_data")
+	// }
+
+	// Queue needs volume for persistence
+	if m.config.Services.Queue.Type != "" {
+		volumes = append(volumes, "redis_queue_data")
 	}
+
 	if m.config.Services.Storage.Type != "" {
 		volumes = append(volumes, "minio_data")
 	}

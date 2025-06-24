@@ -18,10 +18,16 @@ var (
 )
 
 var stopCmd = &cobra.Command{
-	Use:   "stop",
-	Short: "Stop LocalCloud services",
-	Long:  `Stop all or specific LocalCloud services for the current project.`,
-	RunE:  runStop,
+	Use:       "stop [service]",
+	Short:     "Stop LocalCloud services",
+	Long:      `Stop all or specific LocalCloud services for the current project.`,
+	Args:      cobra.MaximumNArgs(1),
+	ValidArgs: []string{"ai", "postgres", "cache", "queue", "minio", "all"}, // Updated
+	Example: `  lc stop           # Stop all services
+  lc stop ai        # Stop only AI service
+  lc stop cache     # Stop only Cache
+  lc stop queue     # Stop only Queue`,
+	RunE: runStop,
 }
 
 func init() {

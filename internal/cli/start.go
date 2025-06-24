@@ -25,17 +25,18 @@ var startCmd = &cobra.Command{
 	Short:     "Start LocalCloud services",
 	Long:      `Start all or specific LocalCloud services for the current project.`,
 	Args:      cobra.MaximumNArgs(1),
-	ValidArgs: []string{"ai", "postgres", "redis", "minio", "all"},
+	ValidArgs: []string{"ai", "postgres", "cache", "queue", "minio", "all"}, // Updated: removed redis, added cache/queue
 	Example: `  lc start           # Start all services
   lc start ai        # Start only AI service
-  lc start postgres  # Start only PostgreSQL
-  lc start --only ai,redis  # Start only AI and Redis`,
+  lc start cache     # Start only Cache
+  lc start queue     # Start only Queue
+  lc start --only ai,cache  # Start only AI and Cache`,
 	RunE: runStart,
 }
 
 func init() {
 	startCmd.Flags().StringSliceVar(&startOnly, "only", []string{}, "Start only specified services (comma-separated)")
-	startCmd.Flags().BoolVar(&noTunnel, "no-tunnel", false, "Don't start tunnel connection")
+	startCmd.Flags().BoolVar(&noTunnel, "no-tunnel", true, "Start tunnel connection")
 	startCmd.Flags().BoolVar(&showInfo, "info", true, "Show connection info after start")
 }
 
@@ -175,7 +176,7 @@ finished:
 	fmt.Println()
 
 	// Start connectivity services if enabled
-	if cfg.Connectivity != nil && cfg.Connectivity.Enabled && !noTunnel {
+	if cfg.Connectivity.Enabled && !noTunnel {
 		if err := startConnectivity(ctx, cfg); err != nil {
 			printWarning(fmt.Sprintf("Connectivity setup failed: %v", err))
 		}
@@ -234,9 +235,8 @@ func startConnectivity(ctx context.Context, cfg *config.Config) error {
 }
 
 func showStartedServicesInfo(cfg *config.Config, startedServices map[string]bool) {
-	// Show only started services URLs
 	if len(startedServices) > 0 {
-		fmt.Println("Services:")
+		fmt.Println("\nServices:")
 
 		if startedServices["ai"] {
 			fmt.Printf("  • AI Models:    http://localhost:%d\n", cfg.Services.AI.Port)
@@ -246,8 +246,14 @@ func showStartedServicesInfo(cfg *config.Config, startedServices map[string]bool
 			fmt.Printf("  • PostgreSQL:   localhost:%d\n", cfg.Services.Database.Port)
 		}
 
-		if startedServices["redis"] && cfg.Services.Cache.Type != "" {
-			fmt.Printf("  • Redis:        localhost:%d\n", cfg.Services.Cache.Port)
+		if startedServices["cache"] && cfg.Services.Cache.Type != "" {
+			// Show cache-specific info
+			PrintRedisCacheInfo(cfg.Services.Cache.Port)
+		}
+
+		if startedServices["queue"] && cfg.Services.Queue.Type != "" {
+			// Show queue-specific info
+			PrintRedisQueueInfo(cfg.Services.Queue.Port)
 		}
 
 		if startedServices["minio"] && cfg.Services.Storage.Type != "" {

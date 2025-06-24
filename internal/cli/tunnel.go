@@ -203,12 +203,11 @@ func runTunnelStart(cmd *cobra.Command, args []string) error {
 		cfg = &config.Config{
 			Project: config.ProjectConfig{
 				Name: "tunnel-test",
-				Type: "standalone",
 			},
-			Connectivity: &config.ConnectivityConfig{
+			Connectivity: config.ConnectivityConfig{ // Remove the & here
 				Enabled: true,
 				Tunnel: config.TunnelConfig{
-					Provider: "auto",
+					Provider: tunnelProvider,
 				},
 			},
 		}

@@ -172,7 +172,7 @@ func displayConnectionInfo(cfg *config.Config, info *network.ConnectionInfo, sav
 	}
 
 	// mDNS Access
-	if cfg.Connectivity != nil && cfg.Connectivity.MDNS.Enabled && len(info.MDNSURLs) > 0 {
+	if cfg.Connectivity.Enabled {
 		fmt.Println(bold("mDNS Access (Same Network):"))
 		for service, url := range info.MDNSURLs {
 			fmt.Printf("  • %s: %s\n", formatServiceName(service), url)

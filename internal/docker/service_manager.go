@@ -151,18 +151,37 @@ func (sm *ServiceManager) StartSelectedServices(services []string, progress chan
 
 // normalizeServiceName converts various service name formats to internal names
 func (sm *ServiceManager) normalizeServiceName(name string) string {
+	// Handle common aliases
 	switch strings.ToLower(name) {
-	case "ai", "ollama", "models":
+	case "ai", "ollama", "llm":
 		return "ai"
-	case "database", "db", "postgres", "postgresql":
-		return "database"
-	case "cache", "redis":
+	case "db", "database", "postgres", "postgresql", "pg":
+		return "postgres"
+	case "cache", "redis-cache":
 		return "cache"
+	case "queue", "redis-queue":
+		return "queue"
 	case "storage", "minio", "s3":
-		return "storage"
+		return "minio"
 	default:
-		fmt.Printf("DEBUG: Unknown service name: %s\n", name)
-		return ""
+		return name
+	}
+}
+
+func (sm *ServiceManager) getServiceStarter(service string) ServiceStarter {
+	switch service {
+	case "ai":
+		return NewAIServiceStarter(sm.manager)
+	case "postgres":
+		return NewDatabaseServiceStarter(sm.manager)
+	case "cache":
+		return NewCacheServiceStarter(sm.manager)
+	case "queue":
+		return NewQueueServiceStarter(sm.manager)
+	case "minio":
+		return NewStorageServiceStarter(sm.manager)
+	default:
+		return nil
 	}
 }
 
@@ -206,49 +225,6 @@ func (sm *ServiceManager) StopAll(progress chan<- ServiceProgress) error {
 	return nil
 }
 
-// GetStatus returns the status of all services
-func (sm *ServiceManager) GetStatus() ([]ServiceStatus, error) {
-	containers, err := sm.manager.container.List(map[string]string{
-		"label": "com.localcloud.project=" + sm.manager.config.Project.Name,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	var statuses []ServiceStatus
-	for _, container := range containers {
-		serviceName := getServiceFromContainer(container.Name)
-
-		status := ServiceStatus{
-			Name:   serviceName,
-			Status: container.State,
-			Health: container.Health,
-		}
-
-		// Get container stats if running
-		if container.State == "running" {
-			stats, err := sm.manager.container.Stats(container.ID)
-			if err == nil {
-				status.CPUPercent = stats.CPUPercent
-				status.MemoryUsage = stats.MemoryUsage
-				status.MemoryLimit = stats.MemoryLimit
-			}
-		}
-
-		// Extract port mappings
-		for port, binding := range container.Ports {
-			if strings.Contains(port, "/tcp") {
-				status.Port = strings.TrimSuffix(binding, ":"+strings.Split(port, "/")[0])
-				break
-			}
-		}
-
-		statuses = append(statuses, status)
-	}
-
-	return statuses, nil
-}
-
 // startService starts a specific service
 func (sm *ServiceManager) startService(service string) error {
 	fmt.Printf("DEBUG: startService called for: %s\n", service)
@@ -258,7 +234,7 @@ func (sm *ServiceManager) startService(service string) error {
 		starter := NewAIServiceStarter(sm.manager)
 		fmt.Println("DEBUG: Created AIServiceStarter")
 		return starter.Start()
-	case "database":
+	case "postgres", "database":
 		starter := NewDatabaseServiceStarter(sm.manager)
 		fmt.Println("DEBUG: Created DatabaseServiceStarter")
 		return starter.Start()
@@ -266,7 +242,11 @@ func (sm *ServiceManager) startService(service string) error {
 		starter := NewCacheServiceStarter(sm.manager)
 		fmt.Println("DEBUG: Created CacheServiceStarter")
 		return starter.Start()
-	case "storage":
+	case "queue":
+		starter := NewQueueServiceStarter(sm.manager)
+		fmt.Println("DEBUG: Created QueueServiceStarter")
+		return starter.Start()
+	case "minio", "storage":
 		starter := NewStorageServiceStarter(sm.manager)
 		fmt.Println("DEBUG: Created StorageServiceStarter")
 		return starter.Start()
@@ -277,37 +257,70 @@ func (sm *ServiceManager) startService(service string) error {
 
 // getServiceOrder returns the order in which services should be started
 func (sm *ServiceManager) getServiceOrder() []string {
-	var services []string
+	services := []string{}
 
-	// Database first
-	if sm.manager.config.Services.Database.Type != "" {
-		services = append(services, "database")
+	// AI service first (if configured)
+	if sm.manager.config.Services.AI.Port > 0 {
+		services = append(services, "ai")
 	}
 
-	// Cache second
+	// Database (if configured)
+	if sm.manager.config.Services.Database.Type != "" {
+		services = append(services, "postgres")
+	}
+
+	// Cache service (if configured)
 	if sm.manager.config.Services.Cache.Type != "" {
 		services = append(services, "cache")
 	}
 
-	// Storage third
-	if sm.manager.config.Services.Storage.Type != "" {
-		services = append(services, "storage")
+	// Queue service (if configured)
+	if sm.manager.config.Services.Queue.Type != "" {
+		services = append(services, "queue")
 	}
 
-	// AI last (may depend on other services)
-	services = append(services, "ai")
+	// Storage (if configured)
+	if sm.manager.config.Services.Storage.Type != "" {
+		services = append(services, "minio")
+	}
 
 	return services
 }
 
-// getServiceFromContainer extracts service name from container name
+// Update getServiceFromContainer to handle new container names
 func getServiceFromContainer(containerName string) string {
-	// Container names are like: localcloud-ai, localcloud-postgres
+	// Container names are like: localcloud-ai, localcloud-postgres, localcloud-redis-cache
+	containerName = strings.TrimPrefix(containerName, "/") // Remove leading slash if present
 	parts := strings.Split(containerName, "-")
-	if len(parts) >= 2 {
+
+	if len(parts) < 2 {
+		return ""
+	}
+
+	// Handle special cases
+	if len(parts) >= 3 && parts[1] == "redis" {
+		// localcloud-redis-cache or localcloud-redis-queue
+		if parts[2] == "cache" {
+			return "cache"
+		} else if parts[2] == "queue" {
+			return "queue"
+		}
+	}
+
+	// Standard cases
+	switch parts[1] {
+	case "ai", "ollama":
+		return "ai"
+	case "postgres", "postgresql":
+		return "postgres"
+	case "minio":
+		return "minio"
+	case "redis":
+		// Legacy redis (if any)
+		return "cache"
+	default:
 		return parts[1]
 	}
-	return containerName
 }
 
 // WaitForService waits for a specific service to be ready
@@ -332,4 +345,61 @@ func (sm *ServiceManager) WaitForService(service string, timeout time.Duration) 
 	}
 
 	return fmt.Errorf("timeout waiting for service %s", service)
+}
+func (sm *ServiceManager) GetStatus() ([]ServiceStatus, error) {
+	statuses := []ServiceStatus{}
+
+	// Get all LocalCloud containers
+	containers, err := sm.manager.container.List(map[string]string{
+		"label": fmt.Sprintf("com.localcloud.project=%s", sm.manager.config.Project.Name),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Map containers to services
+	for _, container := range containers {
+		// Extract service name from container name
+		serviceName := getServiceFromContainer(container.Name)
+
+		// Skip if not a recognized service
+		if serviceName == "" {
+			continue
+		}
+
+		// Get port mapping based on service name
+		port := ""
+		switch serviceName {
+		case "ai", "ollama":
+			port = fmt.Sprintf("%d", sm.manager.config.Services.AI.Port)
+		case "postgres", "database", "postgresql":
+			port = fmt.Sprintf("%d", sm.manager.config.Services.Database.Port)
+		case "cache", "redis-cache":
+			port = fmt.Sprintf("%d", sm.manager.config.Services.Cache.Port)
+		case "queue", "redis-queue":
+			port = fmt.Sprintf("%d", sm.manager.config.Services.Queue.Port)
+		case "minio", "storage":
+			port = fmt.Sprintf("%d", sm.manager.config.Services.Storage.Port)
+		}
+
+		status := ServiceStatus{
+			Name:   serviceName,
+			Status: strings.ToLower(container.State),
+			Health: container.Health,
+			Port:   port,
+		}
+
+		// Get resource usage if running
+		if container.State == "running" {
+			if stats, err := sm.manager.container.Stats(container.ID); err == nil {
+				status.CPUPercent = stats.CPUPercent
+				status.MemoryUsage = stats.MemoryUsage
+				status.MemoryLimit = stats.MemoryLimit
+			}
+		}
+
+		statuses = append(statuses, status)
+	}
+
+	return statuses, nil
 }

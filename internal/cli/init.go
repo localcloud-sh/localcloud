@@ -20,6 +20,9 @@ var initCmd = &cobra.Command{
 	RunE:  runInit,
 }
 
+// internal/cli/init.go
+// Fix the runInit function around line 57
+
 func runInit(cmd *cobra.Command, args []string) error {
 	projectName := "my-project"
 	if len(args) > 0 {
@@ -54,8 +57,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Create config file
 	configFile := filepath.Join(configPath, "config.yaml")
-	configContent := config.GenerateDefault(projectName, "general")
-	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+	configContent, err := config.GenerateDefault(projectName, "custom") // FIX: Handle error return
+	if err != nil {
+		s.Stop()
+		return fmt.Errorf("failed to generate config: %w", err)
+	}
+
+	if err := os.WriteFile(configFile, configContent, 0644); err != nil { // FIX: Remove []byte conversion
 		s.Stop()
 		return fmt.Errorf("failed to create config file: %w", err)
 	}

@@ -28,8 +28,8 @@ func NewConnectivityManager(cfg *config.Config) (*ConnectivityManager, error) {
 	}
 
 	// Initialize tunnel manager if connectivity is enabled
-	if cfg.Connectivity != nil && cfg.Connectivity.Enabled {
-		tunnel, err := NewTunnelManager(cfg.Connectivity)
+	if cfg.Connectivity.Enabled {
+		tunnel, err := NewTunnelManager(&cfg.Connectivity)
 		if err != nil {
 			// Tunnel errors are not fatal, just log
 			fmt.Printf("Warning: Tunnel initialization failed: %v\n", err)
@@ -49,7 +49,7 @@ func (cm *ConnectivityManager) RegisterService(name string, port int) {
 // Start starts all connectivity services
 func (cm *ConnectivityManager) Start(ctx context.Context) error {
 	// Start mDNS if enabled
-	if cm.config.Connectivity != nil && cm.config.Connectivity.MDNS.Enabled {
+	if cm.config.Connectivity.MDNS.Enabled {
 		if err := cm.discovery.StartMDNS(cm.config.Project.Name, cm.services); err != nil {
 			fmt.Printf("Warning: mDNS start failed: %v\n", err)
 		}

@@ -30,10 +30,14 @@ var configValidateCmd = &cobra.Command{
 }
 
 var configGenerateCmd = &cobra.Command{
-	Use:   "generate",
+	Use:   "generate [project-name] [project-type]",
 	Short: "Generate default configuration",
 	Long:  `Generate a default LocalCloud configuration file.`,
-	RunE:  runConfigGenerate,
+	Example: `  lc config generate                    # Uses defaults
+  lc config generate my-app              # Custom project name
+  lc config generate my-app chat         # Custom name and type`,
+	Args: cobra.MaximumNArgs(2),
+	RunE: runConfigGenerate,
 }
 
 func init() {
@@ -94,6 +98,9 @@ func runConfigValidate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// internal/cli/config.go
+// Fix the runConfigGenerate function
+
 func runConfigGenerate(cmd *cobra.Command, args []string) error {
 	// Check if config already exists
 	if _, err := os.Stat(".localcloud/config.yaml"); err == nil {
@@ -107,14 +114,22 @@ func runConfigGenerate(cmd *cobra.Command, args []string) error {
 
 	// Generate default config
 	projectName := "my-project"
+	projectType := "custom" // ADD THIS LINE - default project type
+
 	if len(args) > 0 {
 		projectName = args[0]
 	}
+	if len(args) > 1 {
+		projectType = args[1] // Optional: second argument as project type
+	}
 
-	configContent := config.GenerateDefault(projectName, "general")
+	configContent, err := config.GenerateDefault(projectName, projectType)
+	if err != nil {
+		return fmt.Errorf("failed to generate config: %w", err)
+	}
 
 	// Write config file
-	if err := os.WriteFile(".localcloud/config.yaml", []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(".localcloud/config.yaml", configContent, 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
