@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/briandowns/spinner"
+	"github.com/localcloud/localcloud/internal/components"
 	"github.com/localcloud/localcloud/internal/config"
 	"github.com/localcloud/localcloud/internal/docker"
 	"github.com/localcloud/localcloud/internal/network"
@@ -25,7 +26,7 @@ var startCmd = &cobra.Command{
 	Short:     "Start LocalCloud services",
 	Long:      `Start all or specific LocalCloud services for the current project.`,
 	Args:      cobra.MaximumNArgs(1),
-	ValidArgs: []string{"ai", "postgres", "cache", "queue", "minio", "all"}, // Updated: removed redis, added cache/queue
+	ValidArgs: []string{"ai", "postgres", "cache", "queue", "minio", "all"},
 	Example: `  lc start           # Start all services
   lc start ai        # Start only AI service
   lc start cache     # Start only Cache
@@ -58,7 +59,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load configuration")
 	}
 
-	// Determine which services to start
+	// Determine which services to start based on components
 	var servicesToStart []string
 	startAll := true
 
@@ -70,11 +71,30 @@ func runStart(cmd *cobra.Command, args []string) error {
 		// --only flag used
 		servicesToStart = startOnly
 		startAll = false
-	}
+	} else {
+		// Start all enabled components
+		enabledComponents := getEnabledComponents(cfg)
+		if len(enabledComponents) == 0 {
+			fmt.Println(warningColor("No components enabled in this project."))
+			fmt.Println("\nTo add components:")
+			fmt.Println("  • Run: lc init --interactive")
+			fmt.Println("  • Or: lc component add <component-id>")
+			fmt.Println("\nAvailable components:")
+			fmt.Println("  • llm        - Large language models")
+			fmt.Println("  • embedding  - Text embeddings")
+			fmt.Println("  • vector     - Vector database")
+			fmt.Println("  • cache      - Redis cache")
+			fmt.Println("  • queue      - Job queue")
+			return nil
+		}
 
-	if verbose {
-		fmt.Printf("DEBUG: Start all: %v\n", startAll)
-		fmt.Printf("DEBUG: Services to start: %v\n", servicesToStart)
+		// Convert components to services
+		servicesToStart = components.ComponentsToServices(enabledComponents)
+
+		if verbose {
+			fmt.Printf("DEBUG: Enabled components: %v\n", enabledComponents)
+			fmt.Printf("DEBUG: Services to start: %v\n", servicesToStart)
+		}
 	}
 
 	// Create Docker manager
@@ -172,99 +192,137 @@ finished:
 		printWarning("Service startup completed with errors!")
 	} else {
 		printSuccess("Service startup complete!")
-	}
-	fmt.Println()
 
-	// Start connectivity services if enabled
-	if cfg.Connectivity.Enabled && !noTunnel {
-		if err := startConnectivity(ctx, cfg); err != nil {
-			printWarning(fmt.Sprintf("Connectivity setup failed: %v", err))
+		// Show component-specific information
+		if showInfo {
+			showStartedServicesInfo(cfg, startedServices)
 		}
 	}
 
-	// Show connection info if requested
-	if showInfo {
-		showStartedServicesInfo(cfg, startedServices)
+	// Show connection info
+	if showInfo && !hasErrors {
+		fmt.Println()
+		showConnectionInfo(cfg)
+
+		// Start tunnel if requested
+		if !noTunnel && cfg.Connectivity.Enabled {
+			fmt.Println()
+			fmt.Println("Starting tunnel connection...")
+			if err := startTunnel(cfg); err != nil {
+				printWarning(fmt.Sprintf("Failed to start tunnel: %v", err))
+			}
+		}
 	}
 
 	return nil
 }
 
-func startConnectivity(ctx context.Context, cfg *config.Config) error {
-	// Create connectivity manager
-	connMgr, err := network.NewConnectivityManager(cfg)
+// showStartedServicesInfo displays information about started services based on components
+func showStartedServicesInfo(cfg *config.Config, startedServices map[string]bool) {
+	fmt.Println()
+
+	// Check which components are running
+	enabledComponents := getEnabledComponents(cfg)
+
+	for _, compID := range enabledComponents {
+		comp, _ := components.GetComponent(compID)
+
+		// Check if component's services are running
+		allRunning := true
+		for _, service := range comp.Services {
+			if !startedServices[service] {
+				allRunning = false
+				break
+			}
+		}
+
+		if !allRunning {
+			continue
+		}
+
+		switch compID {
+		case "llm":
+			fmt.Println("✓ LLM (Text generation)")
+			fmt.Printf("  Chat: http://localhost:%d/api/chat\n", cfg.Services.AI.Port)
+			fmt.Printf("  Generate: http://localhost:%d/api/generate\n", cfg.Services.AI.Port)
+			fmt.Println("  Try:")
+			fmt.Printf("    curl http://localhost:%d/api/generate \\\n", cfg.Services.AI.Port)
+			fmt.Println(`      -d '{"model":"qwen2.5:3b","prompt":"Hello!"}'`)
+			fmt.Println()
+
+		case "embedding":
+			fmt.Println("✓ Embeddings (Semantic search)")
+			fmt.Printf("  URL: http://localhost:%d/api/embeddings\n", cfg.Services.AI.Port)
+			fmt.Println("  Try:")
+			fmt.Printf("    curl http://localhost:%d/api/embeddings \\\n", cfg.Services.AI.Port)
+			fmt.Println(`      -d '{"model":"nomic-embed-text","prompt":"Hello world"}'`)
+			fmt.Println()
+
+		case "vector":
+			fmt.Println("✓ Vector Database (pgvector)")
+			fmt.Printf("  URL: postgresql://localcloud:localcloud@localhost:%d/localcloud\n", cfg.Services.Database.Port)
+			fmt.Println("  Try:")
+			fmt.Println(`    psql $DATABASE_URL -c "CREATE TABLE items (id serial, embedding vector(768))"`)
+			fmt.Println(`    psql $DATABASE_URL -c "SELECT * FROM items ORDER BY embedding <-> '[3,1,2]' LIMIT 5"`)
+			fmt.Println()
+
+		case "cache":
+			fmt.Println("✓ Cache (Redis)")
+			fmt.Printf("  URL: redis://localhost:%d\n", cfg.Services.Cache.Port)
+			fmt.Println("  Try:")
+			fmt.Printf("    redis-cli -p %d ping\n", cfg.Services.Cache.Port)
+			fmt.Printf("    redis-cli -p %d set key value\n", cfg.Services.Cache.Port)
+			fmt.Println()
+
+		case "queue":
+			fmt.Println("✓ Queue (Redis)")
+			fmt.Printf("  URL: redis://localhost:%d\n", cfg.Services.Queue.Port)
+			fmt.Println("  Try:")
+			fmt.Printf("    redis-cli -p %d LPUSH jobs '{\"task\":\"process\"}'\n", cfg.Services.Queue.Port)
+			fmt.Printf("    redis-cli -p %d BRPOP jobs 0\n", cfg.Services.Queue.Port)
+			fmt.Println()
+
+		case "storage":
+			fmt.Println("✓ Object Storage (MinIO)")
+			fmt.Printf("  API: http://localhost:%d\n", cfg.Services.Storage.Port)
+			fmt.Printf("  Console: http://localhost:%d\n", cfg.Services.Storage.Console)
+			fmt.Println("  Credentials: see ~/.localcloud/minio-credentials")
+			fmt.Println()
+		}
+	}
+}
+
+// showConnectionInfo displays connection information
+func showConnectionInfo(cfg *config.Config) {
+	fmt.Println("Connection Information:")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("Project: %s\n", cfg.Project.Name)
+
+	// Show model configuration
+	if len(cfg.Services.AI.Models) > 0 {
+		fmt.Printf("Models: %s\n", strings.Join(cfg.Services.AI.Models, ", "))
+		if cfg.Services.AI.Default != "" {
+			fmt.Printf("Default: %s\n", cfg.Services.AI.Default)
+		}
+	}
+
+	// Database URL if enabled
+	if cfg.Services.Database.Type != "" {
+		fmt.Printf("\nDatabase URL:\n")
+		fmt.Printf("postgresql://localcloud:localcloud@localhost:%d/localcloud\n", cfg.Services.Database.Port)
+	}
+
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+}
+
+// startTunnel starts the tunnel connection
+func startTunnel(cfg *config.Config) error {
+	tunnelMgr := network.NewTunnelManager(&cfg.Connectivity.Tunnel)
+	url, err := tunnelMgr.Connect(context.Background(), 3000) // Default to port 3000
 	if err != nil {
 		return err
 	}
 
-	// Register services
-	if cfg.Services.AI.Port > 0 {
-		connMgr.RegisterService("ai", cfg.Services.AI.Port)
-	}
-	if cfg.Services.Database.Type != "" && cfg.Services.Database.Port > 0 {
-		connMgr.RegisterService("postgres", cfg.Services.Database.Port)
-	}
-	if cfg.Services.Cache.Type != "" && cfg.Services.Cache.Port > 0 {
-		connMgr.RegisterService("redis", cfg.Services.Cache.Port)
-	}
-	if cfg.Services.Storage.Type != "" {
-		connMgr.RegisterService("minio", cfg.Services.Storage.Port)
-		connMgr.RegisterService("minio-console", cfg.Services.Storage.Console)
-	}
-
-	// Register default web/api ports
-	connMgr.RegisterService("web", 3000)
-	connMgr.RegisterService("api", 8080)
-
-	// Start connectivity services
-	if err := connMgr.Start(ctx); err != nil {
-		return err
-	}
-
-	// Show tunnel info if established
-	info, err := connMgr.GetConnectionInfo()
-	if err == nil && len(info.TunnelURLs) > 0 {
-		fmt.Println()
-		for _, url := range info.TunnelURLs {
-			printSuccess(fmt.Sprintf("Public URL: %s", url))
-			break
-		}
-	}
-
+	printSuccess(fmt.Sprintf("Tunnel connected: %s", url))
 	return nil
-}
-
-func showStartedServicesInfo(cfg *config.Config, startedServices map[string]bool) {
-	if len(startedServices) > 0 {
-		fmt.Println("\nServices:")
-
-		if startedServices["ai"] {
-			fmt.Printf("  • AI Models:    http://localhost:%d\n", cfg.Services.AI.Port)
-		}
-
-		if startedServices["postgres"] && cfg.Services.Database.Type != "" {
-			fmt.Printf("  • PostgreSQL:   localhost:%d\n", cfg.Services.Database.Port)
-		}
-
-		if startedServices["cache"] && cfg.Services.Cache.Type != "" {
-			// Show cache-specific info
-			PrintRedisCacheInfo(cfg.Services.Cache.Port)
-		}
-
-		if startedServices["queue"] && cfg.Services.Queue.Type != "" {
-			// Show queue-specific info
-			PrintRedisQueueInfo(cfg.Services.Queue.Port)
-		}
-
-		if startedServices["minio"] && cfg.Services.Storage.Type != "" {
-			fmt.Printf("  • MinIO:        http://localhost:%d (console: %d)\n",
-				cfg.Services.Storage.Port, cfg.Services.Storage.Console)
-		}
-
-		fmt.Println()
-	}
-
-	fmt.Println("Run 'localcloud info' for detailed connection information")
-	fmt.Println("Run 'localcloud status' to check service health")
-	fmt.Println("Run 'localcloud logs' to view service logs")
 }

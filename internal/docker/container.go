@@ -40,7 +40,6 @@ func (c *Client) NewContainerManager() ContainerManager {
 }
 
 // Create creates a new container
-// Create creates a new container
 func (m *containerManager) Create(config ContainerConfig) (string, error) {
 	// Debug log
 	fmt.Printf("DEBUG: Creating container with name: %s\n", config.Name)
@@ -161,8 +160,12 @@ func (m *containerManager) Start(containerID string) error {
 
 // Stop stops a container
 func (m *containerManager) Stop(containerID string, timeout int) error {
-	timeoutDuration := time.Duration(timeout) * time.Second
-	err := m.client.docker.ContainerStop(m.client.ctx, containerID, &timeoutDuration)
+	// Create stop options with timeout
+	stopOptions := container.StopOptions{
+		Timeout: &timeout,
+	}
+
+	err := m.client.docker.ContainerStop(m.client.ctx, containerID, stopOptions)
 	if err != nil {
 		return fmt.Errorf("failed to stop container: %w", err)
 	}
@@ -241,11 +244,11 @@ func (m *containerManager) List(filterMap map[string]string) ([]ContainerInfo, e
 		All: true,
 	}
 
-	// Add filters if provided
+	// Add filters
 	if len(filterMap) > 0 {
 		filterArgs := filters.NewArgs()
-		for k, v := range filterMap {
-			filterArgs.Add(k, v)
+		for key, value := range filterMap {
+			filterArgs.Add(key, value)
 		}
 		opts.Filters = filterArgs
 	}
@@ -255,6 +258,7 @@ func (m *containerManager) List(filterMap map[string]string) ([]ContainerInfo, e
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
+	// Convert to ContainerInfo
 	var result []ContainerInfo
 	for _, c := range containers {
 		info := ContainerInfo{
@@ -266,13 +270,22 @@ func (m *containerManager) List(filterMap map[string]string) ([]ContainerInfo, e
 			Created: c.Created,
 		}
 
+		// Add health status if available
+		if c.Status != "" && strings.Contains(c.Status, "(healthy)") {
+			info.Health = "healthy"
+		} else if strings.Contains(c.Status, "(unhealthy)") {
+			info.Health = "unhealthy"
+		}
+
 		// Parse ports
 		info.Ports = make(map[string]string)
 		for _, p := range c.Ports {
 			key := fmt.Sprintf("%d/%s", p.PrivatePort, p.Type)
+			value := ""
 			if p.PublicPort > 0 {
-				info.Ports[key] = fmt.Sprintf("%s:%d", p.IP, p.PublicPort)
+				value = fmt.Sprintf("%s:%d", p.IP, p.PublicPort)
 			}
+			info.Ports[key] = value
 		}
 
 		result = append(result, info)
@@ -283,16 +296,26 @@ func (m *containerManager) List(filterMap map[string]string) ([]ContainerInfo, e
 
 // Exists checks if a container with the given name exists
 func (m *containerManager) Exists(name string) (bool, string, error) {
-	containers, err := m.List(map[string]string{
-		"name": name,
+	// Ensure name has prefix
+	name = getContainerName(name)
+
+	filterArgs := filters.NewArgs()
+	filterArgs.Add("name", name)
+
+	containers, err := m.client.docker.ContainerList(m.client.ctx, types.ContainerListOptions{
+		All:     true,
+		Filters: filterArgs,
 	})
 	if err != nil {
 		return false, "", err
 	}
 
 	for _, c := range containers {
-		if c.Name == name {
-			return true, c.ID, nil
+		// Check exact name match (Docker returns partial matches)
+		for _, containerName := range c.Names {
+			if strings.TrimPrefix(containerName, "/") == name {
+				return true, c.ID, nil
+			}
 		}
 	}
 
@@ -302,114 +325,94 @@ func (m *containerManager) Exists(name string) (bool, string, error) {
 // WaitHealthy waits for a container to become healthy
 func (m *containerManager) WaitHealthy(containerID string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	checkCount := 0
 
 	for time.Now().Before(deadline) {
-		checkCount++
-		info, err := m.Inspect(containerID)
+		inspect, err := m.client.docker.ContainerInspect(m.client.ctx, containerID)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to inspect container: %w", err)
 		}
 
-		fmt.Printf("DEBUG: Health check #%d - State: %s, Health: %s\n", checkCount, info.State, info.Health)
-
-		if info.State != "running" {
-			return fmt.Errorf("container is not running: %s", info.State)
-		}
-
-		if info.Health == "" || info.Health == "healthy" {
-			// No health check or already healthy
-			return nil
-		}
-
-		if info.Health == "unhealthy" {
-			// Get last health check log
-			inspect, _ := m.client.docker.ContainerInspect(m.client.ctx, containerID)
-			if len(inspect.State.Health.Log) > 0 {
-				lastLog := inspect.State.Health.Log[len(inspect.State.Health.Log)-1]
-				fmt.Printf("DEBUG: Last health check output: %s\n", lastLog.Output)
+		// If no health check, consider it healthy if running
+		if inspect.Config.Healthcheck == nil {
+			if inspect.State.Running {
+				return nil
 			}
-			return fmt.Errorf("container is unhealthy")
+		} else if inspect.State.Health != nil {
+			if inspect.State.Health.Status == "healthy" {
+				return nil
+			}
+			if inspect.State.Health.Status == "unhealthy" {
+				return fmt.Errorf("container is unhealthy")
+			}
 		}
 
-		// Still starting, wait a bit
-		fmt.Printf("DEBUG: Waiting for health check... (%d seconds remaining)\n",
-			int(deadline.Sub(time.Now()).Seconds()))
-		time.Sleep(3 * time.Second)
+		time.Sleep(1 * time.Second)
 	}
 
-	return fmt.Errorf("timeout waiting for container to become healthy")
+	return fmt.Errorf("timeout waiting for container to be healthy")
 }
 
-// ContainerStats represents container resource usage
-type ContainerStats struct {
-	CPUPercent    float64
-	MemoryUsage   uint64
-	MemoryLimit   uint64
-	MemoryPercent float64
-	NetworkRx     uint64
-	NetworkTx     uint64
-}
-
-// Stats returns container resource statistics
+// Stats returns container statistics
 func (m *containerManager) Stats(containerID string) (ContainerStats, error) {
-	statsResp, err := m.client.docker.ContainerStats(m.client.ctx, containerID, false)
+	stats, err := m.client.docker.ContainerStats(m.client.ctx, containerID, false)
 	if err != nil {
 		return ContainerStats{}, fmt.Errorf("failed to get container stats: %w", err)
 	}
-	defer statsResp.Body.Close()
+	defer stats.Body.Close()
 
-	var stats types.Stats
-	if err := json.NewDecoder(statsResp.Body).Decode(&stats); err != nil {
+	var v types.StatsJSON
+	if err := json.NewDecoder(stats.Body).Decode(&v); err != nil {
 		return ContainerStats{}, fmt.Errorf("failed to decode stats: %w", err)
 	}
 
 	// Calculate CPU percentage
-	cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
-	systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
+	cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
 	cpuPercent := 0.0
 	if systemDelta > 0.0 && cpuDelta > 0.0 {
-		cpuPercent = (cpuDelta / systemDelta) * float64(len(stats.CPUStats.CPUUsage.PercpuUsage)) * 100.0
+		cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
 	}
 
-	// Calculate memory percentage
-	memoryPercent := 0.0
-	if stats.MemoryStats.Limit > 0 {
-		memoryPercent = (float64(stats.MemoryStats.Usage) / float64(stats.MemoryStats.Limit)) * 100.0
+	// Memory usage
+	memUsage := v.MemoryStats.Usage
+	memLimit := v.MemoryStats.Limit
+	memPercent := 0.0
+	if memLimit > 0 {
+		memPercent = (float64(memUsage) / float64(memLimit)) * 100.0
 	}
-
-	// Calculate network usage
-	var networkRx, networkTx uint64
-	// Note: Network stats might be in a different structure in your Docker version
-	// You may need to adjust this based on the actual types.Stats structure
 
 	return ContainerStats{
 		CPUPercent:    cpuPercent,
-		MemoryUsage:   stats.MemoryStats.Usage,
-		MemoryLimit:   stats.MemoryStats.Limit,
-		MemoryPercent: memoryPercent,
-		NetworkRx:     networkRx,
-		NetworkTx:     networkTx,
+		MemoryUsage:   memUsage,
+		MemoryLimit:   memLimit,
+		MemoryPercent: memPercent,
+		NetworkRx:     v.Networks["eth0"].RxBytes,
+		NetworkTx:     v.Networks["eth0"].TxBytes,
+		BlockRead:     v.BlkioStats.IoServiceBytesRecursive[0].Value,
+		BlockWrite:    v.BlkioStats.IoServiceBytesRecursive[1].Value,
 	}, nil
 }
 
-// parseMounts converts volume mounts to Docker format
+// parseMounts converts volume mount configs to Docker mount configs
 func parseMounts(volumes []VolumeMount) []mount.Mount {
 	var mounts []mount.Mount
+
 	for _, v := range volumes {
 		m := mount.Mount{
-			Type:     mount.TypeBind,
-			Source:   v.Source,
-			Target:   v.Target,
-			ReadOnly: v.ReadOnly,
+			Target: v.Target,
 		}
 
-		// Check if this is a named volume
-		if !strings.HasPrefix(v.Source, "/") && !strings.HasPrefix(v.Source, "./") {
+		if v.Type == "bind" {
+			m.Type = mount.TypeBind
+			m.Source = v.Source
+			m.ReadOnly = v.ReadOnly
+		} else {
 			m.Type = mount.TypeVolume
+			m.Source = v.Source
 		}
 
 		mounts = append(mounts, m)
 	}
+
 	return mounts
 }

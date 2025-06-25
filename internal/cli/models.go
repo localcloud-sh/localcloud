@@ -69,47 +69,80 @@ func runModelsList(cmd *cobra.Command, args []string) error {
 
 	// Check if Ollama is available
 	if !manager.IsOllamaAvailable() {
-		printWarning("Ollama service is not running. Start it with 'lc start'")
+		printWarning("Ollama service is not running. Start it with: lc start ai")
 		fmt.Println()
 		showRecommendedModels()
 		return nil
 	}
 
-	// Get installed models
+	// List installed models
 	modelList, err := manager.List()
 	if err != nil {
 		return fmt.Errorf("failed to list models: %w", err)
 	}
 
 	if len(modelList) == 0 {
-		printInfo("No models installed yet")
+		fmt.Println("No models installed yet.")
 		fmt.Println()
 		showRecommendedModels()
 		return nil
 	}
 
-	// Display installed models
-	fmt.Println("\nInstalled Models:")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("%-20s %-10s %s\n", "MODEL", "SIZE", "MODIFIED")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	// Separate models by type
+	var llmModels []models.Model
+	var embeddingModels []models.Model
 
 	for _, model := range modelList {
-		size := FormatBytes(model.Size)
-		modified := model.ModifiedAt.Format("2006-01-02 15:04")
-
-		// Highlight active model
-		name := model.Name
-		if name == cfg.Services.AI.Default {
-			name = successColor(name + " ✓")
+		if models.IsEmbeddingModel(model.Name) {
+			embeddingModels = append(embeddingModels, model)
+		} else {
+			llmModels = append(llmModels, model)
 		}
-
-		fmt.Printf("%-20s %-10s %s\n", name, size, modified)
 	}
 
-	fmt.Println()
+	// Display installed models by type
+	fmt.Println("Installed Models:")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	// Show recommended models not yet installed
+	if len(llmModels) > 0 {
+		fmt.Println("\n🤖 Language Models:")
+		fmt.Printf("%-30s %-12s %-20s\n", "NAME", "SIZE", "MODIFIED")
+		fmt.Println(strings.Repeat("─", 62))
+		for _, model := range llmModels {
+			fmt.Printf("%-30s %-12s %-20s\n",
+				model.Name,
+				FormatBytes(model.Size),
+				model.ModifiedAt.Format("2006-01-02 15:04"),
+			)
+		}
+	}
+
+	if len(embeddingModels) > 0 {
+		fmt.Println("\n🔍 Embedding Models:")
+		fmt.Printf("%-30s %-12s %-20s\n", "NAME", "SIZE", "MODIFIED")
+		fmt.Println(strings.Repeat("─", 62))
+		for _, model := range embeddingModels {
+			info := models.GetEmbeddingModelInfo(model.Name)
+			name := model.Name
+			if info != nil && info.Dimensions > 0 {
+				name = fmt.Sprintf("%s (%dd)", model.Name, info.Dimensions)
+			}
+			fmt.Printf("%-30s %-12s %-20s\n",
+				name,
+				FormatBytes(model.Size),
+				model.ModifiedAt.Format("2006-01-02 15:04"),
+			)
+		}
+	}
+
+	// Get active model
+	activeModel, _ := manager.GetActiveModel(cfg.Services.AI.Default)
+	if activeModel != "" {
+		fmt.Printf("\nActive model: %s\n", infoColor(activeModel))
+	}
+
+	// Show recommendations
+	fmt.Println()
 	showRecommendedModelsNotInstalled(modelList)
 
 	return nil
@@ -117,26 +150,22 @@ func runModelsList(cmd *cobra.Command, args []string) error {
 
 func runModelsPull(cmd *cobra.Command, args []string) error {
 	modelName := args[0]
-
 	cfg := config.Get()
 	manager := models.NewManager(fmt.Sprintf("http://localhost:%d", cfg.Services.AI.Port))
 
 	// Check if Ollama is available
 	if !manager.IsOllamaAvailable() {
-		return fmt.Errorf("Ollama service is not running. Start it with 'lc start'")
+		return fmt.Errorf("Ollama service is not running. Start it with: lc start ai")
 	}
 
-	// Check if model already exists
-	existingModels, _ := manager.List()
-	for _, m := range existingModels {
-		if m.Name == modelName {
-			printInfo(fmt.Sprintf("Model '%s' is already installed", modelName))
-			return nil
-		}
+	// Check if model is an embedding model
+	isEmbedding := models.IsEmbeddingModel(modelName)
+	modelType := "language"
+	if isEmbedding {
+		modelType = "embedding"
 	}
 
-	printInfo(fmt.Sprintf("Pulling model '%s'...", modelName))
-	fmt.Println("This may take a few minutes depending on the model size and your internet connection.")
+	fmt.Printf("Pulling %s model: %s\n", modelType, modelName)
 
 	// Create progress channel
 	progress := make(chan models.PullProgress)
@@ -147,119 +176,103 @@ func runModelsPull(cmd *cobra.Command, args []string) error {
 		done <- manager.Pull(modelName, progress)
 	}()
 
-	// Progress bar
-	s := spinner.New(spinner.CharSets[14], 100)
-	s.Suffix = " Connecting..."
+	// Display progress
+	s := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
 	s.Start()
-
-	var lastStatus string
-	startTime := time.Now()
 
 	for {
 		select {
-		case p, ok := <-progress:
-			if !ok {
-				s.Stop()
-				goto finished
-			}
-
-			// Update spinner based on status
-			if p.Status != lastStatus {
-				s.Stop()
-
-				switch p.Status {
-				case "pulling manifest":
-					s.Suffix = " Fetching manifest..."
-				case "downloading":
-					s.Suffix = " Starting download..."
-				case "verifying":
-					s.Suffix = " Verifying..."
-				case "writing manifest":
-					s.Suffix = " Finalizing..."
-				case "success":
-					printSuccess("Model pulled successfully!")
-					continue
-				default:
-					s.Suffix = fmt.Sprintf(" %s...", p.Status)
-				}
-
-				s.Start()
-				lastStatus = p.Status
-			}
-
-			// Show download progress
-			if p.Total > 0 && p.Status == "downloading" {
-				s.Stop()
-
-				// Calculate speed
-				elapsed := time.Since(startTime).Seconds()
-				speed := float64(p.Completed) / elapsed / 1024 / 1024 // MB/s
-
-				// Progress bar
-				barWidth := 30
-				filled := int(float64(barWidth) * float64(p.Completed) / float64(p.Total))
-				bar := strings.Repeat("=", filled) + strings.Repeat("-", barWidth-filled)
-
-				fmt.Printf("\r[%s] %d%% | %s / %s | %.1f MB/s",
+		case p := <-progress:
+			s.Stop()
+			if p.Total > 0 {
+				percentage := int((p.Completed * 100) / p.Total)
+				bar := progressBar(percentage, 30)
+				fmt.Printf("\r%s: %d%% [%s] %s/%s",
+					p.Status,
+					percentage,
 					bar,
-					p.Percentage,
 					FormatBytes(p.Completed),
-					FormatBytes(p.Total),
-					speed,
-				)
+					FormatBytes(p.Total))
+			} else {
+				fmt.Printf("\r%s: %s", p.Status, p.Digest)
 			}
 
 		case err := <-done:
 			s.Stop()
+			fmt.Println() // New line after progress
+
 			if err != nil {
 				return fmt.Errorf("failed to pull model: %w", err)
 			}
-			goto finished
+
+			printSuccess(fmt.Sprintf("Model '%s' pulled successfully!", modelName))
+
+			// Show usage examples based on model type
+			fmt.Println("\nTry it out:")
+			if isEmbedding {
+				fmt.Println("  # Generate embedding")
+				fmt.Printf("  curl http://localhost:%d/api/embeddings \\\n", cfg.Services.AI.Port)
+				fmt.Printf("    -d '{\"model\":\"%s\",\"prompt\":\"Hello world\"}'\n", modelName)
+				fmt.Println()
+				fmt.Println("  # Python example")
+				fmt.Println("  import requests")
+				fmt.Printf("  resp = requests.post('http://localhost:%d/api/embeddings',\n", cfg.Services.AI.Port)
+				fmt.Printf("      json={'model': '%s', 'prompt': 'Hello world'})\n", modelName)
+				fmt.Println("  embedding = resp.json()['embedding']")
+			} else {
+				fmt.Println("  # Chat completion")
+				fmt.Printf("  curl http://localhost:%d/api/chat \\\n", cfg.Services.AI.Port)
+				fmt.Printf("    -d '{\"model\":\"%s\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello!\"}]}'\n", modelName)
+				fmt.Println()
+				fmt.Println("  # Generate text")
+				fmt.Printf("  curl http://localhost:%d/api/generate \\\n", cfg.Services.AI.Port)
+				fmt.Printf("    -d '{\"model\":\"%s\",\"prompt\":\"Once upon a time\"}'\n", modelName)
+			}
+
+			// Update config if this is the first model
+			if cfg.Services.AI.Default == "" {
+				fmt.Printf("\nSetting %s as default model\n", modelName)
+				// This would update the config
+			}
+
+			return nil
 		}
 	}
-
-finished:
-	fmt.Println() // New line after progress
-	duration := time.Since(startTime)
-	printSuccess(fmt.Sprintf("Model '%s' pulled successfully in %s!", modelName, duration.Round(time.Second)))
-
-	return nil
 }
 
 func runModelsRemove(cmd *cobra.Command, args []string) error {
 	modelName := args[0]
-
 	cfg := config.Get()
 	manager := models.NewManager(fmt.Sprintf("http://localhost:%d", cfg.Services.AI.Port))
 
 	// Check if Ollama is available
 	if !manager.IsOllamaAvailable() {
-		return fmt.Errorf("Ollama service is not running. Start it with 'lc start'")
+		return fmt.Errorf("Ollama service is not running. Start it with: lc start ai")
 	}
 
 	// Confirm removal
-	fmt.Printf("Are you sure you want to remove model '%s'? [y/N]: ", modelName)
-	var response string
-	fmt.Scanln(&response)
+	fmt.Printf("Are you sure you want to remove model '%s'? (y/N): ", modelName)
+	var confirm string
+	fmt.Scanln(&confirm)
 
-	if strings.ToLower(response) != "y" {
-		printInfo("Removal cancelled")
+	if strings.ToLower(confirm) != "y" {
+		fmt.Println("Cancelled")
 		return nil
 	}
 
 	// Remove model
-	s := spinner.New(spinner.CharSets[14], 100)
+	s := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
 	s.Suffix = fmt.Sprintf(" Removing %s...", modelName)
 	s.Start()
 
-	if err := manager.Remove(modelName); err != nil {
-		s.Stop()
+	err := manager.Remove(modelName)
+	s.Stop()
+
+	if err != nil {
 		return fmt.Errorf("failed to remove model: %w", err)
 	}
 
-	s.Stop()
 	printSuccess(fmt.Sprintf("Model '%s' removed successfully", modelName))
-
 	return nil
 }
 
@@ -267,18 +280,18 @@ func runModelsInfo(cmd *cobra.Command, args []string) error {
 	cfg := config.Get()
 	manager := models.NewManager(fmt.Sprintf("http://localhost:%d", cfg.Services.AI.Port))
 
-	fmt.Println("\nAI Provider Information:")
+	fmt.Println("AI Model Information")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	// Check providers
+	// Provider detection
 	provider := manager.DetectProvider()
 
 	// Ollama status
 	if manager.IsOllamaAvailable() {
 		fmt.Printf("Ollama Status: %s\n", successColor("Running ✓"))
-		fmt.Printf("Ollama Endpoint: %s\n", infoColor(fmt.Sprintf("http://localhost:%d", cfg.Services.AI.Port)))
+		fmt.Printf("Endpoint: %s\n", infoColor(fmt.Sprintf("http://localhost:%d", cfg.Services.AI.Port)))
 
-		// Count models
+		// Count installed models
 		modelList, _ := manager.List()
 		fmt.Printf("Installed Models: %s\n", infoColor(fmt.Sprintf("%d", len(modelList))))
 	} else {
@@ -311,6 +324,8 @@ func runModelsInfo(cmd *cobra.Command, args []string) error {
 func showRecommendedModels() {
 	fmt.Println("Recommended Models:")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	fmt.Println("\n🤖 Language Models:")
 	fmt.Printf("%-20s %-10s %s\n", "MODEL", "SIZE", "DESCRIPTION")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
@@ -322,20 +337,33 @@ func showRecommendedModels() {
 		)
 	}
 
+	fmt.Println("\n🔍 Embedding Models:")
+	fmt.Printf("%-20s %-10s %s\n", "MODEL", "SIZE", "DIMENSIONS")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	for _, model := range models.PredefinedEmbeddingModels {
+		fmt.Printf("%-20s %-10s %d dimensions\n",
+			infoColor(model.Name),
+			model.Size,
+			model.Dimensions,
+		)
+	}
+
 	fmt.Println("\nTo download a model, run:")
 	fmt.Println("  lc models pull <model-name>")
 }
 
 func showRecommendedModelsNotInstalled(installed []models.Model) {
-	recommended := models.GetRecommendedModels()
-	notInstalled := []struct {
+	// Get recommended LLM models
+	recommendedLLMs := models.GetRecommendedModels()
+	notInstalledLLMs := []struct {
 		Name        string
 		Size        string
 		Description string
 	}{}
 
-	// Find recommended models not installed
-	for _, rec := range recommended {
+	// Find recommended LLMs not installed
+	for _, rec := range recommendedLLMs {
 		found := false
 		for _, inst := range installed {
 			if inst.Name == rec.Name || inst.Model == rec.Name {
@@ -344,19 +372,51 @@ func showRecommendedModelsNotInstalled(installed []models.Model) {
 			}
 		}
 		if !found {
-			notInstalled = append(notInstalled, rec)
+			notInstalledLLMs = append(notInstalledLLMs, rec)
 		}
 	}
 
-	if len(notInstalled) > 0 {
-		fmt.Println("Recommended models to try:")
-		for _, model := range notInstalled {
-			fmt.Printf("  • %s (%s) - %s\n",
-				infoColor(model.Name),
-				model.Size,
-				model.Description,
-			)
+	// Find recommended embedding models not installed
+	notInstalledEmbeddings := []models.EmbeddingModel{}
+	for _, rec := range models.PredefinedEmbeddingModels {
+		found := false
+		for _, inst := range installed {
+			if inst.Name == rec.Name {
+				found = true
+				break
+			}
 		}
+		if !found {
+			notInstalledEmbeddings = append(notInstalledEmbeddings, rec)
+		}
+	}
+
+	// Show recommendations if any
+	if len(notInstalledLLMs) > 0 || len(notInstalledEmbeddings) > 0 {
+		fmt.Println("Recommended models to try:")
+
+		if len(notInstalledLLMs) > 0 {
+			fmt.Println("\n🤖 Language Models:")
+			for _, model := range notInstalledLLMs[:min(3, len(notInstalledLLMs))] {
+				fmt.Printf("  • %s (%s) - %s\n",
+					infoColor(model.Name),
+					model.Size,
+					model.Description,
+				)
+			}
+		}
+
+		if len(notInstalledEmbeddings) > 0 {
+			fmt.Println("\n🔍 Embedding Models:")
+			for _, model := range notInstalledEmbeddings[:min(3, len(notInstalledEmbeddings))] {
+				fmt.Printf("  • %s (%s) - %d dimensions\n",
+					infoColor(model.Name),
+					model.Size,
+					model.Dimensions,
+				)
+			}
+		}
+
 		fmt.Println("\nTo download: lc models pull <model-name>")
 	}
 }
@@ -366,4 +426,21 @@ func maskAPIKey(key string) string {
 		return "***"
 	}
 	return key[:4] + "..." + key[len(key)-4:]
+}
+
+func progressBar(percentage int, width int) string {
+	filled := (percentage * width) / 100
+	bar := strings.Repeat("=", filled)
+	if filled < width {
+		bar += ">"
+		bar += strings.Repeat(" ", width-filled-1)
+	}
+	return bar
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

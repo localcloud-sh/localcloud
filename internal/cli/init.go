@@ -12,21 +12,34 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	interactive bool
+)
+
 var initCmd = &cobra.Command{
 	Use:   "init [project-name]",
 	Short: "Initialize a new LocalCloud project",
 	Long:  `Initialize a new LocalCloud project in the current directory or with the specified name.`,
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runInit,
+	Example: `  lc init                    # Initialize in current directory
+  lc init my-project         # Create new project directory
+  lc init --interactive      # Interactive setup wizard`,
 }
 
-// internal/cli/init.go
-// Fix the runInit function around line 57
+func init() {
+	initCmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "Run interactive setup wizard")
+}
 
 func runInit(cmd *cobra.Command, args []string) error {
 	projectName := "my-project"
 	if len(args) > 0 {
 		projectName = args[0]
+	}
+
+	// Run interactive wizard if requested
+	if interactive {
+		return RunInteractiveInit(projectName)
 	}
 
 	// Create project directory if specified
@@ -57,13 +70,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Create config file
 	configFile := filepath.Join(configPath, "config.yaml")
-	configContent, err := config.GenerateDefault(projectName, "custom") // FIX: Handle error return
+	configContent, err := config.GenerateDefault(projectName, "custom")
 	if err != nil {
 		s.Stop()
 		return fmt.Errorf("failed to generate config: %w", err)
 	}
 
-	if err := os.WriteFile(configFile, configContent, 0644); err != nil { // FIX: Remove []byte conversion
+	if err := os.WriteFile(configFile, configContent, 0644); err != nil {
 		s.Stop()
 		return fmt.Errorf("failed to create config file: %w", err)
 	}
@@ -93,6 +106,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 	} else {
 		fmt.Println("  1. localcloud start")
 	}
+	fmt.Println()
+	fmt.Println("To use the interactive setup wizard:")
+	fmt.Println("  localcloud init --interactive")
 	fmt.Println()
 	fmt.Println("For more information, run: localcloud --help")
 

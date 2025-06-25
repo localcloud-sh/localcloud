@@ -72,6 +72,7 @@ func init() {
 	rootCmd.AddCommand(debugCmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(resetCmd)
+	rootCmd.AddCommand(componentCmd) // Add component command
 	// Database command is added in database.go init()
 	// Template commands will be added from main.go
 }

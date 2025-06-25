@@ -10,118 +10,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Config represents the LocalCloud configuration
-type Config struct {
-	Version      string             `mapstructure:"version"`
-	Project      ProjectConfig      `mapstructure:"project"`
-	Services     ServicesConfig     `mapstructure:"services"`
-	Resources    ResourcesConfig    `mapstructure:"resources"`
-	Connectivity ConnectivityConfig `mapstructure:"connectivity"`
-	CLI          CLIConfig          `mapstructure:"cli"`
-}
-
-// ProjectConfig represents project configuration
-type ProjectConfig struct {
-	Name string `mapstructure:"name"`
-	Type string `mapstructure:"type"`
-}
-
-// ServicesConfig represents all service configurations
-type ServicesConfig struct {
-	AI       AIConfig       `mapstructure:"ai"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Cache    CacheConfig    `mapstructure:"cache"`
-	Queue    QueueConfig    `mapstructure:"queue"`
-	Storage  StorageConfig  `mapstructure:"storage"`
-}
-
-// AIConfig represents AI service configuration
-type AIConfig struct {
-	Port    int      `mapstructure:"port"`
-	Models  []string `mapstructure:"models"`
-	Default string   `mapstructure:"default"`
-}
-
-// DatabaseConfig represents database service configuration
-type DatabaseConfig struct {
-	Type       string   `mapstructure:"type"`
-	Version    string   `mapstructure:"version"`
-	Port       int      `mapstructure:"port"`
-	Extensions []string `mapstructure:"extensions"`
-}
-
-// CacheConfig represents cache service configuration
-type CacheConfig struct {
-	Type            string `mapstructure:"type"`
-	Port            int    `mapstructure:"port"`
-	MaxMemory       string `mapstructure:"maxmemory"`
-	MaxMemoryPolicy string `mapstructure:"maxmemory_policy"`
-	Persistence     bool   `mapstructure:"persistence"`
-}
-
-// QueueConfig represents queue service configuration
-type QueueConfig struct {
-	Type            string `mapstructure:"type"`
-	Port            int    `mapstructure:"port"`
-	MaxMemory       string `mapstructure:"maxmemory"`
-	MaxMemoryPolicy string `mapstructure:"maxmemory_policy"`
-	Persistence     bool   `mapstructure:"persistence"`
-	AppendOnly      bool   `mapstructure:"appendonly"`
-	AppendFsync     string `mapstructure:"appendfsync"`
-}
-
-// StorageConfig represents storage service configuration
-type StorageConfig struct {
-	Type    string `mapstructure:"type"`
-	Port    int    `mapstructure:"port"`
-	Console int    `mapstructure:"console"`
-}
-
-// ResourcesConfig represents resource limits
-type ResourcesConfig struct {
-	MemoryLimit string `mapstructure:"memory_limit"`
-	CPULimit    string `mapstructure:"cpu_limit"`
-}
-
-// ConnectivityConfig represents connectivity configuration
-type ConnectivityConfig struct {
-	Enabled bool         `mapstructure:"enabled"`
-	MDNS    MDNSConfig   `mapstructure:"mdns"`
-	Tunnel  TunnelConfig `mapstructure:"tunnel"`
-}
-
-// MDNSConfig represents mDNS configuration
-type MDNSConfig struct {
-	Enabled bool `mapstructure:"enabled"`
-}
-
-// TunnelConfig represents tunnel configuration
-type TunnelConfig struct {
-	Provider   string           `mapstructure:"provider"`
-	Persist    bool             `mapstructure:"persist"`
-	Domain     string           `mapstructure:"domain"`
-	TargetURL  string           `mapstructure:"target_url"`
-	Cloudflare CloudflareConfig `mapstructure:"cloudflare"`
-	Ngrok      NgrokConfig      `mapstructure:"ngrok"`
-}
-
-// CloudflareConfig represents Cloudflare tunnel configuration
-type CloudflareConfig struct {
-	TunnelID    string `mapstructure:"tunnel_id"`
-	Credentials string `mapstructure:"credentials"`
-}
-
-// NgrokConfig represents Ngrok tunnel configuration
-type NgrokConfig struct {
-	AuthToken string `mapstructure:"auth_token"`
-	Region    string `mapstructure:"region"`
-}
-
-// CLIConfig represents CLI-specific configuration
-type CLIConfig struct {
-	ShowServiceInfo bool `mapstructure:"show_service_info"`
-}
-
 var (
 	// Global config instance
 	instance *Config
@@ -305,8 +193,6 @@ func setDefaults() {
 	// CLI defaults
 	viper.SetDefault("cli.show_service_info", defaults.CLI.ShowServiceInfo)
 }
-
-// Add these functions to internal/config/config.go
 
 // GetViper returns the viper instance
 func GetViper() *viper.Viper {

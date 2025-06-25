@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -66,9 +65,9 @@ func (s *AIServiceStarter) Start() error {
 		HealthCheck: &HealthCheckConfig{
 			Test:        []string{"CMD", "curl", "-f", "http://localhost:11434/api/tags"},
 			Interval:    30,
-			Timeout:     30, // Increased from 10
-			Retries:     5,  // Increased from 3
-			StartPeriod: 60, // Increased from 40
+			Timeout:     30,
+			Retries:     5,
+			StartPeriod: 60,
 		},
 		Labels: map[string]string{
 			"com.localcloud.project": s.manager.config.Project.Name,
@@ -108,20 +107,32 @@ func (s *AIServiceStarter) postStart() error {
 	modelManager := models.NewManager(fmt.Sprintf("http://localhost:%d", cfg.Services.AI.Port))
 
 	// Check installed models
-	installed, err := modelManager.List()
+	installedModels, err := modelManager.List()
 	if err != nil {
 		// Not critical, Ollama might still be starting
 		return nil
 	}
 
+	// Separate configured models by type
+	var llmModels []string
+	var embeddingModels []string
+
+	for _, modelName := range cfg.Services.AI.Models {
+		if models.IsEmbeddingModel(modelName) {
+			embeddingModels = append(embeddingModels, modelName)
+		} else {
+			llmModels = append(llmModels, modelName)
+		}
+	}
+
 	// Check if default model is installed
 	defaultModel := cfg.Services.AI.Default
-	if defaultModel == "" && len(cfg.Services.AI.Models) > 0 {
-		defaultModel = cfg.Services.AI.Models[0]
+	if defaultModel == "" && len(llmModels) > 0 {
+		defaultModel = llmModels[0]
 	}
 
 	defaultInstalled := false
-	for _, model := range installed {
+	for _, model := range installedModels {
 		if model.Name == defaultModel || model.Model == defaultModel {
 			defaultInstalled = true
 			break
@@ -132,6 +143,25 @@ func (s *AIServiceStarter) postStart() error {
 	if !defaultInstalled && defaultModel != "" {
 		fmt.Printf("\n%s Default model '%s' is not installed.\n", warningColor("!"), defaultModel)
 		fmt.Printf("Run '%s' to download it.\n\n", infoColor(fmt.Sprintf("lc models pull %s", defaultModel)))
+	}
+
+	// Show configured embedding models
+	if len(embeddingModels) > 0 {
+		fmt.Printf("\nConfigured embedding models:\n")
+		for _, modelName := range embeddingModels {
+			installed := false
+			for _, inst := range installedModels {
+				if inst.Name == modelName {
+					installed = true
+					break
+				}
+			}
+			if installed {
+				fmt.Printf("  ✓ %s\n", modelName)
+			} else {
+				fmt.Printf("  ✗ %s (not installed - run: lc models pull %s)\n", modelName, modelName)
+			}
+		}
 	}
 
 	return nil
@@ -151,39 +181,85 @@ func (s *AIServiceStarter) waitForOllama() error {
 			fmt.Println("DEBUG: Ollama is ready!")
 			return nil
 		}
-
-		if err != nil {
-			fmt.Printf("DEBUG: Ollama not ready yet (attempt %d/%d): %v\n", i+1, maxAttempts, err)
-		} else if resp != nil {
-			fmt.Printf("DEBUG: Ollama returned status %d (attempt %d/%d)\n", resp.StatusCode, i+1, maxAttempts)
-			resp.Body.Close()
-		}
-
-		time.Sleep(3 * time.Second)
+		time.Sleep(2 * time.Second)
 	}
-
 	return fmt.Errorf("ollama failed to start after %d attempts", maxAttempts)
 }
 
-// ensureImage checks and pulls image if needed
+// PrintServiceInfo prints service information including embedding support
+func (s *AIServiceStarter) PrintServiceInfo() {
+	port := s.manager.config.Services.AI.Port
+
+	// LLM Information
+	fmt.Println("\n✓ LLM (Text generation)")
+	fmt.Printf("  URL: http://localhost:%d/api/generate\n", port)
+	fmt.Printf("  Chat: http://localhost:%d/api/chat\n", port)
+	fmt.Println("  Try:")
+	fmt.Println(`    curl http://localhost:11434/api/generate \`)
+	fmt.Println(`      -d '{"model":"qwen2.5:3b","prompt":"Hello, world!"}'`)
+
+	// Embedding Information
+	fmt.Println("\n✓ Embeddings (Semantic search)")
+	fmt.Printf("  URL: http://localhost:%d/api/embeddings\n", port)
+	fmt.Println("  Models:")
+	fmt.Println("    • nomic-embed-text (274MB, 768 dimensions)")
+	fmt.Println("    • mxbai-embed-large (670MB, 1024 dimensions)")
+	fmt.Println("    • all-minilm (46MB, 384 dimensions)")
+	fmt.Println("  Try:")
+	fmt.Println(`    # Generate embedding`)
+	fmt.Println(`    curl http://localhost:11434/api/embeddings \`)
+	fmt.Println(`      -d '{"model":"nomic-embed-text","prompt":"Hello world"}'`)
+	fmt.Println()
+	fmt.Println(`    # Python example`)
+	fmt.Println(`    import requests`)
+	fmt.Println(`    resp = requests.post('http://localhost:11434/api/embeddings',`)
+	fmt.Println(`        json={'model': 'nomic-embed-text', 'prompt': 'Hello world'})`)
+	fmt.Println(`    embedding = resp.json()['embedding']  # 768-dim vector`)
+}
+
+// ensureImage checks if image exists and pulls if needed
 func (s *AIServiceStarter) ensureImage(image string) error {
-	exists, err := s.manager.image.Exists(image)
+	hasImage, err := s.manager.image.Exists(image)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to check image: %w", err)
 	}
-	if !exists {
+
+	if !hasImage {
+		fmt.Printf("Pulling %s image...\n", image)
 		progress := make(chan PullProgress)
+		done := make(chan error)
+
 		go func() {
-			for range progress {
-				// Could log progress here
-			}
+			done <- s.manager.image.Pull(image, progress)
 		}()
 
-		if err := s.manager.image.Pull(image, progress); err != nil {
-			return fmt.Errorf("failed to pull image %s: %w", image, err)
+		// Display progress
+		for {
+			select {
+			case p := <-progress:
+				if p.ProgressDetail.Total > 0 {
+					percentage := int((p.ProgressDetail.Current * 100) / p.ProgressDetail.Total)
+					fmt.Printf("\rPulling: %s [%d%%]", p.Status, percentage)
+				} else {
+					fmt.Printf("\rPulling: %s", p.Status)
+				}
+			case err := <-done:
+				fmt.Println() // New line after progress
+				return err
+			}
 		}
 	}
+
 	return nil
+}
+
+// Helper color functions (should be imported from CLI package in real implementation)
+func warningColor(s string) string {
+	return fmt.Sprintf("\033[33m%s\033[0m", s)
+}
+
+func infoColor(s string) string {
+	return fmt.Sprintf("\033[36m%s\033[0m", s)
 }
 
 // DatabaseServiceStarter handles database service startup
@@ -202,9 +278,8 @@ func (s *DatabaseServiceStarter) Start() error {
 		return nil // Database not configured
 	}
 
-	image := fmt.Sprintf("postgres:%s-alpine", s.manager.config.Services.Database.Version)
-
 	// Check and pull image
+	image := fmt.Sprintf("postgres:%s-alpine", s.manager.config.Services.Database.Version)
 	if err := s.ensureImage(image); err != nil {
 		return err
 	}
@@ -215,8 +290,9 @@ func (s *DatabaseServiceStarter) Start() error {
 		Image: image,
 		Env: map[string]string{
 			"POSTGRES_USER":     "localcloud",
-			"POSTGRES_PASSWORD": "localcloud-dev",
+			"POSTGRES_PASSWORD": "localcloud",
 			"POSTGRES_DB":       "localcloud",
+			"PGDATA":            "/var/lib/postgresql/data/pgdata",
 		},
 		Ports: []PortBinding{
 			{
@@ -275,6 +351,69 @@ func NewCacheServiceStarter(m *Manager) ServiceStarter {
 	return &CacheServiceStarter{manager: m}
 }
 
+// Start starts the cache service
+func (s *CacheServiceStarter) Start() error {
+	if s.manager.config.Services.Cache.Type == "" {
+		return nil // Cache not configured
+	}
+
+	// Check and pull image
+	if err := s.ensureImage("redis:7-alpine"); err != nil {
+		return err
+	}
+
+	// Create container config
+	config := ContainerConfig{
+		Name:  "localcloud-redis",
+		Image: "redis:7-alpine",
+		Command: []string{
+			"redis-server",
+			"--maxmemory", s.manager.config.Services.Cache.MaxMemory,
+			"--maxmemory-policy", "allkeys-lru",
+		},
+		Ports: []PortBinding{
+			{
+				ContainerPort: "6379",
+				HostPort:      fmt.Sprintf("%d", s.manager.config.Services.Cache.Port),
+				Protocol:      "tcp",
+			},
+		},
+		Volumes: []VolumeMount{
+			{
+				Source: fmt.Sprintf("localcloud_%s_redis_data", s.manager.config.Project.Name),
+				Target: "/data",
+			},
+		},
+		Networks:      []string{fmt.Sprintf("localcloud_%s_default", s.manager.config.Project.Name)},
+		RestartPolicy: "unless-stopped",
+		HealthCheck: &HealthCheckConfig{
+			Test:     []string{"CMD", "redis-cli", "ping"},
+			Interval: 10,
+			Timeout:  5,
+			Retries:  5,
+		},
+		Labels: map[string]string{
+			"com.localcloud.project": s.manager.config.Project.Name,
+			"com.localcloud.service": "cache",
+		},
+	}
+
+	// Create and start container
+	containerID, err := s.manager.container.Create(config)
+	if err != nil {
+		return err
+	}
+
+	return s.manager.container.Start(containerID)
+}
+
+// ensureImage checks and pulls image if needed
+func (s *CacheServiceStarter) ensureImage(image string) error {
+	starter := &AIServiceStarter{manager: s.manager}
+	return starter.ensureImage(image)
+}
+
+// QueueServiceStarter handles queue service startup
 type QueueServiceStarter struct {
 	manager *Manager
 }
@@ -362,68 +501,6 @@ func (s *QueueServiceStarter) ensureImage(image string) error {
 	return starter.ensureImage(image)
 }
 
-// Start starts the cache service
-func (s *CacheServiceStarter) Start() error {
-	if s.manager.config.Services.Cache.Type == "" {
-		return nil // Cache not configured
-	}
-
-	// Check and pull image
-	if err := s.ensureImage("redis:7-alpine"); err != nil {
-		return err
-	}
-
-	// Create container config
-	config := ContainerConfig{
-		Name:  "localcloud-redis",
-		Image: "redis:7-alpine",
-		Command: []string{
-			"redis-server",
-			"--maxmemory", s.manager.config.Services.Cache.MaxMemory,
-			"--maxmemory-policy", "allkeys-lru",
-		},
-		Ports: []PortBinding{
-			{
-				ContainerPort: "6379",
-				HostPort:      fmt.Sprintf("%d", s.manager.config.Services.Cache.Port),
-				Protocol:      "tcp",
-			},
-		},
-		Volumes: []VolumeMount{
-			{
-				Source: fmt.Sprintf("localcloud_%s_redis_data", s.manager.config.Project.Name),
-				Target: "/data",
-			},
-		},
-		Networks:      []string{fmt.Sprintf("localcloud_%s_default", s.manager.config.Project.Name)},
-		RestartPolicy: "unless-stopped",
-		HealthCheck: &HealthCheckConfig{
-			Test:     []string{"CMD", "redis-cli", "ping"},
-			Interval: 10,
-			Timeout:  5,
-			Retries:  5,
-		},
-		Labels: map[string]string{
-			"com.localcloud.project": s.manager.config.Project.Name,
-			"com.localcloud.service": "cache",
-		},
-	}
-
-	// Create and start container
-	containerID, err := s.manager.container.Create(config)
-	if err != nil {
-		return err
-	}
-
-	return s.manager.container.Start(containerID)
-}
-
-// ensureImage checks and pulls image if needed
-func (s *CacheServiceStarter) ensureImage(image string) error {
-	starter := &AIServiceStarter{manager: s.manager}
-	return starter.ensureImage(image)
-}
-
 // StorageServiceStarter handles storage service startup
 type StorageServiceStarter struct {
 	manager      *Manager
@@ -504,13 +581,13 @@ func (s *StorageServiceStarter) Start() error {
 		return err
 	}
 
-	// Wait for health check
-	if err := s.manager.container.WaitHealthy(containerID, 60*time.Second); err != nil {
+	// Wait for health and create default bucket
+	if err := s.manager.container.WaitHealthy(containerID, 30*time.Second); err != nil {
 		return err
 	}
 
-	// Post-start setup (create default bucket, save credentials)
-	return s.postStart()
+	// Post-start: create default bucket
+	return s.createDefaultBucket()
 }
 
 // ensureImage checks and pulls image if needed
@@ -519,112 +596,61 @@ func (s *StorageServiceStarter) ensureImage(image string) error {
 	return starter.ensureImage(image)
 }
 
-// postStart performs post-startup tasks
-func (s *StorageServiceStarter) postStart() error {
-	// Wait a bit for MinIO to fully initialize
-	time.Sleep(2 * time.Second)
+// createDefaultBucket creates the default bucket after MinIO starts
+func (s *StorageServiceStarter) createDefaultBucket() error {
+	// Wait a bit for MinIO to be fully ready
+	time.Sleep(5 * time.Second)
 
 	// Create MinIO client
-	client, err := s.createMinIOClient()
+	endpoint := fmt.Sprintf("localhost:%d", s.manager.config.Services.Storage.Port)
+	accessKeyID := "localcloud"
+	secretAccessKey := s.rootPassword
+	useSSL := false
+
+	minioClient, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+		Secure: useSSL,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create MinIO client: %w", err)
 	}
 
 	// Create default bucket
-	bucketName := fmt.Sprintf("%s-storage", s.manager.config.Project.Name)
-	if err := s.createDefaultBucket(client, bucketName); err != nil {
-		return fmt.Errorf("failed to create default bucket: %w", err)
-	}
-
-	// Save connection info
-	return s.saveConnectionInfo()
-}
-
-// createMinIOClient creates a MinIO client
-func (s *StorageServiceStarter) createMinIOClient() (*minio.Client, error) {
-	endpoint := fmt.Sprintf("localhost:%d", s.manager.config.Services.Storage.Port)
-
-	return minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4("localcloud", s.rootPassword, ""),
-		Secure: false,
-	})
-}
-
-// createDefaultBucket creates the default bucket with public policy
-func (s *StorageServiceStarter) createDefaultBucket(client *minio.Client, bucketName string) error {
+	bucketName := "localcloud"
 	ctx := context.Background()
 
-	exists, err := client.BucketExists(ctx, bucketName)
+	err = minioClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
 	if err != nil {
-		return err
-	}
-
-	if !exists {
-		if err := client.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{}); err != nil {
-			return err
+		// Check if bucket already exists
+		exists, errBucketExists := minioClient.BucketExists(ctx, bucketName)
+		if errBucketExists == nil && exists {
+			// Bucket already exists, not an error
+			return nil
 		}
-
-		// Set public read policy for /public/* path
-		policy := fmt.Sprintf(`{
-			"Version": "2012-10-17",
-			"Statement": [{
-				"Effect": "Allow",
-				"Principal": {"AWS": ["*"]},
-				"Action": ["s3:GetObject"],
-				"Resource": ["arn:aws:s3:::%s/public/*"]
-			}]
-		}`, bucketName)
-
-		return client.SetBucketPolicy(ctx, bucketName, policy)
+		return fmt.Errorf("failed to create bucket: %w", err)
 	}
+
+	// Save credentials to file for user reference
+	credsPath := filepath.Join(os.Getenv("HOME"), ".localcloud", "minio-credentials")
+	os.MkdirAll(filepath.Dir(credsPath), 0700)
+
+	credsContent := fmt.Sprintf("MinIO Credentials\n=================\nEndpoint: http://localhost:%d\nAccess Key: localcloud\nSecret Key: %s\nConsole: http://localhost:%d\n",
+		s.manager.config.Services.Storage.Port,
+		s.rootPassword,
+		s.manager.config.Services.Storage.Console,
+	)
+
+	os.WriteFile(credsPath, []byte(credsContent), 0600)
 
 	return nil
 }
 
-// StorageCredentials holds MinIO connection information
-type StorageCredentials struct {
-	Endpoint   string `json:"endpoint"`
-	AccessKey  string `json:"access_key"`
-	SecretKey  string `json:"secret_key"`
-	UseSSL     bool   `json:"use_ssl"`
-	ConsoleURL string `json:"console_url"`
-	BucketName string `json:"default_bucket"`
-}
-
-// saveConnectionInfo saves MinIO connection information to file
-func (s *StorageServiceStarter) saveConnectionInfo() error {
-	creds := StorageCredentials{
-		Endpoint:   fmt.Sprintf("http://localhost:%d", s.manager.config.Services.Storage.Port),
-		AccessKey:  "localcloud",
-		SecretKey:  s.rootPassword,
-		UseSSL:     false,
-		ConsoleURL: fmt.Sprintf("http://localhost:%d", s.manager.config.Services.Storage.Console),
-		BucketName: fmt.Sprintf("%s-storage", s.manager.config.Project.Name),
-	}
-
-	// Create .localcloud directory if it doesn't exist
-	if err := os.MkdirAll(".localcloud", 0755); err != nil {
-		return err
-	}
-
-	credsPath := filepath.Join(".localcloud", "storage-credentials.json")
-	data, err := json.MarshalIndent(creds, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(credsPath, data, 0600)
-}
-
 // generateSecurePassword generates a secure random password
 func generateSecurePassword() string {
-	bytes := make([]byte, 16)
-	rand.Read(bytes)
-	return base64.URLEncoding.EncodeToString(bytes)
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback to a default password if random generation fails
+		return "localcloud-dev-2024"
+	}
+	return base64.URLEncoding.EncodeToString(bytes)[:32]
 }
-
-// Helper color functions (will be imported from CLI package)
-var (
-	warningColor = func(s string) string { return s }
-	infoColor    = func(s string) string { return s }
-)
