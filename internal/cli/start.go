@@ -317,7 +317,11 @@ func showConnectionInfo(cfg *config.Config) {
 
 // startTunnel starts the tunnel connection
 func startTunnel(cfg *config.Config) error {
-	tunnelMgr := network.NewTunnelManager(&cfg.Connectivity.Tunnel)
+	tunnelMgr, err := network.NewTunnelManager(&cfg.Connectivity)
+	if err != nil {
+		return fmt.Errorf("failed to create tunnel manager: %w", err)
+	}
+
 	url, err := tunnelMgr.Connect(context.Background(), 3000) // Default to port 3000
 	if err != nil {
 		return err

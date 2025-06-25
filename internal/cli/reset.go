@@ -204,7 +204,7 @@ func cleanupDocker(manager *docker.Manager, keepData, keepModels bool) error {
 	// Clean up volumes if requested
 	if !keepData || !keepModels {
 		volumeMgr := manager.GetClient().NewVolumeManager()
-		volumes, err := volumeMgr.List()
+		volumes, err := volumeMgr.List(nil)
 		if err != nil {
 			return err
 		}

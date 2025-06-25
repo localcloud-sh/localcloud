@@ -84,6 +84,7 @@ type PortBinding struct {
 type VolumeMount struct {
 	Source   string
 	Target   string
+	Type     string // "bind" or "volume"
 	ReadOnly bool
 }
 

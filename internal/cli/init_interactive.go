@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/briandowns/spinner"
@@ -14,8 +15,6 @@ import (
 	"github.com/localcloud/localcloud/internal/components"
 	"github.com/localcloud/localcloud/internal/config"
 	"github.com/localcloud/localcloud/internal/models"
-	"gopkg.in/yaml.v3"
-	"time"
 )
 
 // InteractiveConfig represents the configuration built during interactive init
@@ -602,15 +601,4 @@ func showProjectSummary(projectName string, componentIDs []string, models map[st
 	fmt.Println()
 	fmt.Println("Ready to start? Run: " + color.New(color.FgGreen, color.Bold).Sprint("lc start"))
 	fmt.Println()
-}
-
-// progressBar creates a simple progress bar
-func progressBar(percentage int, width int) string {
-	filled := (percentage * width) / 100
-	bar := strings.Repeat("=", filled)
-	if filled < width {
-		bar += ">"
-		bar += strings.Repeat(" ", width-filled-1)
-	}
-	return bar
 }

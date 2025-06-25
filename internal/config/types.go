@@ -1,136 +1,114 @@
 // internal/config/types.go
-// Package docker provides Docker container management for LocalCloud
 package config
 
-import "time"
-
-// ContainerConfig represents container configuration
-type ContainerConfig struct {
-	Name          string
-	Image         string
-	Command       []string
-	Env           map[string]string
-	Ports         []PortBinding
-	Volumes       []VolumeMount
-	Networks      []string
-	Labels        map[string]string
-	RestartPolicy string
-	HealthCheck   *HealthCheckConfig
-	Memory        int64
-	CPUQuota      int64
+// Config represents the main configuration structure
+type Config struct {
+	Version      string             `yaml:"version" json:"version"`
+	Project      ProjectConfig      `yaml:"project" json:"project"`
+	Services     ServicesConfig     `yaml:"services" json:"services"`
+	Resources    ResourcesConfig    `yaml:"resources" json:"resources"`
+	Connectivity ConnectivityConfig `yaml:"connectivity" json:"connectivity"`
+	CLI          CLIConfig          `yaml:"cli" json:"cli"`
 }
 
-// PortBinding represents a port binding configuration
-type PortBinding struct {
-	ContainerPort string
-	HostPort      string
-	Protocol      string
+// ProjectConfig represents project configuration
+type ProjectConfig struct {
+	Name string `yaml:"name" json:"name"`
+	Type string `yaml:"type" json:"type"`
 }
 
-// VolumeMount represents a volume mount configuration
-type VolumeMount struct {
-	Source   string
-	Target   string
-	Type     string // "bind" or "volume"
-	ReadOnly bool
+// ServicesConfig represents all services configuration
+type ServicesConfig struct {
+	AI       AIConfig       `yaml:"ai" json:"ai"`
+	Database DatabaseConfig `yaml:"database" json:"database"`
+	Cache    CacheConfig    `yaml:"cache" json:"cache"`
+	Queue    QueueConfig    `yaml:"queue" json:"queue"`
+	Storage  StorageConfig  `yaml:"storage" json:"storage"`
 }
 
-// HealthCheckConfig represents health check configuration
-type HealthCheckConfig struct {
-	Test        []string
-	Interval    int
-	Timeout     int
-	Retries     int
-	StartPeriod int
+// AIConfig represents AI service configuration
+type AIConfig struct {
+	Port    int      `yaml:"port" json:"port"`
+	Models  []string `yaml:"models" json:"models"`
+	Default string   `yaml:"default" json:"default"`
 }
 
-// ContainerInfo represents container information
-type ContainerInfo struct {
-	ID         string
-	Name       string
-	Image      string
-	Status     string
-	State      string
-	Health     string
-	Ports      map[string]string
-	Created    int64
-	StartedAt  int64
-	Memory     int64
-	CPUPercent float64
+// DatabaseConfig represents database service configuration
+type DatabaseConfig struct {
+	Type       string   `yaml:"type" json:"type"`
+	Version    string   `yaml:"version" json:"version"`
+	Port       int      `yaml:"port" json:"port"`
+	Extensions []string `yaml:"extensions,omitempty" json:"extensions,omitempty"`
 }
 
-// ContainerStats represents container resource usage statistics
-type ContainerStats struct {
-	CPUPercent    float64
-	MemoryUsage   uint64
-	MemoryLimit   uint64
-	MemoryPercent float64
-	NetworkRx     uint64
-	NetworkTx     uint64
-	BlockRead     uint64
-	BlockWrite    uint64
+// CacheConfig represents cache service configuration
+type CacheConfig struct {
+	Type            string `yaml:"type" json:"type"`
+	Port            int    `yaml:"port" json:"port"`
+	MaxMemory       string `yaml:"maxmemory" json:"maxmemory"`
+	MaxMemoryPolicy string `yaml:"maxmemory_policy" json:"maxmemory_policy"`
+	Persistence     bool   `yaml:"persistence" json:"persistence"`
 }
 
-// PullProgress represents image pull progress
-type PullProgress struct {
-	Status         string
-	Progress       string
-	ProgressDetail ProgressDetail
-	Error          string
+// QueueConfig represents queue service configuration
+type QueueConfig struct {
+	Type            string `yaml:"type" json:"type"`
+	Port            int    `yaml:"port" json:"port"`
+	MaxMemory       string `yaml:"maxmemory" json:"maxmemory"`
+	MaxMemoryPolicy string `yaml:"maxmemory_policy" json:"maxmemory_policy"`
+	Persistence     bool   `yaml:"persistence" json:"persistence"`
+	AppendOnly      bool   `yaml:"appendonly" json:"appendonly"`
+	AppendFsync     string `yaml:"appendfsync" json:"appendfsync"`
 }
 
-// ProgressDetail represents detailed progress information
-type ProgressDetail struct {
-	Current int64
-	Total   int64
+// StorageConfig represents storage service configuration
+type StorageConfig struct {
+	Type    string `yaml:"type" json:"type"`
+	Port    int    `yaml:"port" json:"port"`
+	Console int    `yaml:"console" json:"console"`
 }
 
-// ServiceProgress represents service operation progress
-type ServiceProgress struct {
-	Service string
-	Status  string // "starting", "started", "failed", "stopping", "stopped"
-	Error   string
-	Details map[string]interface{}
+// ResourcesConfig represents resource limits configuration
+type ResourcesConfig struct {
+	MemoryLimit string `yaml:"memory_limit" json:"memory_limit"`
+	CPULimit    string `yaml:"cpu_limit" json:"cpu_limit"`
 }
 
-// ServiceStatus represents the status of a service
-type ServiceStatus struct {
-	Name        string
-	Status      string
-	Health      string
-	Ports       map[string]string
-	StartedAt   time.Time
-	Error       string
-	ContainerID string
+// ConnectivityConfig represents connectivity configuration
+type ConnectivityConfig struct {
+	Enabled bool         `yaml:"enabled" json:"enabled"`
+	MDNS    MDNSConfig   `yaml:"mdns" json:"mdns"`
+	Tunnel  TunnelConfig `yaml:"tunnel" json:"tunnel"`
 }
 
-// ImageInfo represents Docker image information
-type ImageInfo struct {
-	ID      string
-	Name    string
-	Tag     string
-	Size    int64
-	Created int64
+// MDNSConfig represents mDNS configuration
+type MDNSConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
 }
 
-// VolumeInfo represents Docker volume information
-type VolumeInfo struct {
-	Name       string
-	Driver     string
-	Mountpoint string
-	Created    time.Time
-	Labels     map[string]string
-	Scope      string
-	Size       int64
+// TunnelConfig represents tunnel configuration
+type TunnelConfig struct {
+	Provider   string           `yaml:"provider" json:"provider"`
+	Persist    bool             `yaml:"persist,omitempty" json:"persist,omitempty"`
+	Domain     string           `yaml:"domain,omitempty" json:"domain,omitempty"`
+	TargetURL  string           `yaml:"target_url,omitempty" json:"target_url,omitempty"`
+	Cloudflare CloudflareConfig `yaml:"cloudflare,omitempty" json:"cloudflare,omitempty"`
+	Ngrok      NgrokConfig      `yaml:"ngrok,omitempty" json:"ngrok,omitempty"`
 }
 
-// NetworkInfo represents Docker network information
-type NetworkInfo struct {
-	ID         string
-	Name       string
-	Driver     string
-	Scope      string
-	Internal   bool
-	Attachable bool
-	Created    time.Time
+// CloudflareConfig represents Cloudflare tunnel configuration
+type CloudflareConfig struct {
+	TunnelID    string `yaml:"tunnel_id,omitempty" json:"tunnel_id,omitempty"`
+	Secret      string `yaml:"secret,omitempty" json:"secret,omitempty"`
+	Credentials string `yaml:"credentials,omitempty" json:"credentials,omitempty"`
+}
+
+// NgrokConfig represents Ngrok tunnel configuration
+type NgrokConfig struct {
+	AuthToken string `yaml:"auth_token,omitempty" json:"auth_token,omitempty"`
+}
+
+// CLIConfig represents CLI configuration
+type CLIConfig struct {
+	ShowServiceInfo bool `yaml:"show_service_info" json:"show_service_info"`
 }

@@ -51,6 +51,8 @@ func (m *Manager) Close() error {
 	return m.client.Close()
 }
 
+// internal/docker/manager.go - Updated functions
+
 // InitializeProject initializes Docker resources for a project
 func (m *Manager) InitializeProject() error {
 	fmt.Println("DEBUG: Manager.InitializeProject called")
@@ -74,7 +76,11 @@ func (m *Manager) InitializeProject() error {
 		volumeName := fmt.Sprintf("localcloud_%s_%s", m.config.Project.Name, vol)
 		fmt.Printf("DEBUG: Creating volume: %s\n", volumeName)
 
-		_, err := m.volume.Create(volumeName)
+		// FIX: Add labels parameter
+		labels := map[string]string{
+			"com.localcloud.project": m.config.Project.Name,
+		}
+		err := m.volume.Create(volumeName, labels)
 		if err != nil {
 			fmt.Printf("DEBUG: Volume creation failed: %v\n", err)
 			return fmt.Errorf("failed to create volume %s: %w", vol, err)
@@ -84,28 +90,6 @@ func (m *Manager) InitializeProject() error {
 
 	fmt.Println("DEBUG: InitializeProject completed successfully")
 	return nil
-}
-
-// StartServices delegates to service manager
-func (m *Manager) StartServices(progress chan<- ServiceProgress) error {
-	fmt.Println("DEBUG: Manager.StartServices (ALL) called")
-	return m.services.StartAll(progress)
-}
-
-// StartSelectedServices starts only the specified services
-func (m *Manager) StartSelectedServices(services []string, progress chan<- ServiceProgress) error {
-	fmt.Printf("DEBUG: Manager.StartSelectedServices called with: %v\n", services)
-	return m.services.StartSelectedServices(services, progress)
-}
-
-// StopServices delegates to service manager
-func (m *Manager) StopServices(progress chan<- ServiceProgress) error {
-	return m.services.StopAll(progress)
-}
-
-// GetServicesStatus delegates to service manager
-func (m *Manager) GetServicesStatus() ([]ServiceStatus, error) {
-	return m.services.GetStatus()
 }
 
 // CleanupProject removes all project resources
@@ -123,7 +107,8 @@ func (m *Manager) CleanupProject() error {
 	}
 
 	// Remove volumes
-	volumes, err := m.volume.List()
+	// FIX: Add nil parameter for no filters
+	volumes, err := m.volume.List(nil)
 	if err != nil {
 		return err
 	}
@@ -152,6 +137,28 @@ func (m *Manager) CleanupProject() error {
 	}
 
 	return nil
+}
+
+// StartServices delegates to service manager
+func (m *Manager) StartServices(progress chan<- ServiceProgress) error {
+	fmt.Println("DEBUG: Manager.StartServices (ALL) called")
+	return m.services.StartAll(progress)
+}
+
+// StartSelectedServices starts only the specified services
+func (m *Manager) StartSelectedServices(services []string, progress chan<- ServiceProgress) error {
+	fmt.Printf("DEBUG: Manager.StartSelectedServices called with: %v\n", services)
+	return m.services.StartSelectedServices(services, progress)
+}
+
+// StopServices delegates to service manager
+func (m *Manager) StopServices(progress chan<- ServiceProgress) error {
+	return m.services.StopAll(progress)
+}
+
+// GetServicesStatus delegates to service manager
+func (m *Manager) GetServicesStatus() ([]ServiceStatus, error) {
+	return m.services.GetStatus()
 }
 
 // getRequiredVolumes returns list of volumes needed based on config
