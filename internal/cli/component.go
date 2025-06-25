@@ -1,0 +1,422 @@
+// Package cli implements the command-line interface for LocalCloud
+package cli
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/localcloud/localcloud/internal/components"
+	"github.com/localcloud/localcloud/internal/config"
+	"github.com/localcloud/localcloud/internal/models"
+	"github.com/spf13/cobra"
+)
+
+var componentCmd = &cobra.Command{
+	Use:     "component",
+	Aliases: []string{"comp"},
+	Short:   "Manage project components",
+	Long:    `Add, remove, or list components in your LocalCloud project.`,
+}
+
+var componentListCmd = &cobra.Command{
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "List available components",
+	Long:    `Display all available components and their status.`,
+	RunE:    runComponentList,
+}
+
+var componentAddCmd = &cobra.Command{
+	Use:   "add [component-id]",
+	Short: "Add a component to the project",
+	Long:  `Add a new component to your LocalCloud project.`,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runComponentAdd,
+}
+
+var componentRemoveCmd = &cobra.Command{
+	Use:     "remove [component-id]",
+	Aliases: []string{"rm"},
+	Short:   "Remove a component from the project",
+	Long:    `Remove a component from your LocalCloud project.`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runComponentRemove,
+}
+
+var componentInfoCmd = &cobra.Command{
+	Use:   "info [component-id]",
+	Short: "Show component details",
+	Long:  `Display detailed information about a specific component.`,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runComponentInfo,
+}
+
+func init() {
+	componentCmd.AddCommand(componentListCmd)
+	componentCmd.AddCommand(componentAddCmd)
+	componentCmd.AddCommand(componentRemoveCmd)
+	componentCmd.AddCommand(componentInfoCmd)
+}
+
+func runComponentList(cmd *cobra.Command, args []string) error {
+	// Check if project is initialized
+	if !IsProjectInitialized() {
+		return fmt.Errorf("no LocalCloud project found. Run 'lc init' first")
+	}
+
+	cfg := config.Get()
+	if cfg == nil {
+		return fmt.Errorf("failed to load configuration")
+	}
+
+	// Get enabled components from config
+	enabledComponents := getEnabledComponents(cfg)
+	enabledMap := make(map[string]bool)
+	for _, comp := range enabledComponents {
+		enabledMap[comp] = true
+	}
+
+	fmt.Println("Available Components:")
+	fmt.Println(strings.Repeat("━", 70))
+	fmt.Printf("%-15s %-25s %-10s %s\n", "ID", "NAME", "STATUS", "DESCRIPTION")
+	fmt.Println(strings.Repeat("─", 70))
+
+	// Group by category
+	categories := []string{"ai", "database", "infrastructure"}
+	for _, category := range categories {
+		comps := components.GetComponentsByCategory(category)
+		if len(comps) == 0 {
+			continue
+		}
+
+		// Category header
+		fmt.Println()
+		fmt.Printf("%s:\n", strings.Title(category))
+
+		for _, comp := range comps {
+			status := "Disabled"
+			statusColor := errorColor
+			if enabledMap[comp.ID] {
+				status = "Enabled"
+				statusColor = successColor
+			}
+
+			fmt.Printf("%-15s %-25s %-10s %s\n",
+				comp.ID,
+				comp.Name,
+				statusColor(status),
+				truncateString(comp.Description, 35))
+		}
+	}
+
+	fmt.Println(strings.Repeat("━", 70))
+	fmt.Println("\nTo add a component: lc component add <component-id>")
+
+	return nil
+}
+
+func runComponentAdd(cmd *cobra.Command, args []string) error {
+	componentID := args[0]
+
+	// Check if project is initialized
+	if !IsProjectInitialized() {
+		return fmt.Errorf("no LocalCloud project found. Run 'lc init' first")
+	}
+
+	// Validate component exists
+	comp, err := components.GetComponent(componentID)
+	if err != nil {
+		return fmt.Errorf("unknown component: %s", componentID)
+	}
+
+	// Load config
+	cfg := config.Get()
+	if cfg == nil {
+		return fmt.Errorf("failed to load configuration")
+	}
+
+	// Check if already enabled
+	enabledComponents := getEnabledComponents(cfg)
+	for _, enabled := range enabledComponents {
+		if enabled == componentID {
+			printWarning(fmt.Sprintf("Component '%s' is already enabled", componentID))
+			return nil
+		}
+	}
+
+	// Update configuration based on component
+	if err := enableComponent(cfg, comp); err != nil {
+		return err
+	}
+
+	// Save configuration
+	if err := config.Save(); err != nil {
+		return fmt.Errorf("failed to save configuration: %w", err)
+	}
+
+	printSuccess(fmt.Sprintf("Added component: %s", comp.Name))
+
+	// Show next steps
+	fmt.Println("\nNext steps:")
+
+	// Check if models need to be selected
+	if len(comp.Models) > 0 {
+		fmt.Printf("  1. Select a model: lc models pull <model-name>\n")
+		fmt.Println("     Available models:")
+		for _, model := range comp.Models {
+			fmt.Printf("     - %s (%s)", model.Name, model.Size)
+			if model.Default {
+				fmt.Print(" [Recommended]")
+			}
+			fmt.Println()
+		}
+		fmt.Println()
+	}
+
+	// Show service start command
+	if len(comp.Services) > 0 {
+		fmt.Printf("  2. Start the service: lc start %s\n", comp.Services[0])
+	}
+
+	return nil
+}
+
+func runComponentRemove(cmd *cobra.Command, args []string) error {
+	componentID := args[0]
+
+	// Check if project is initialized
+	if !IsProjectInitialized() {
+		return fmt.Errorf("no LocalCloud project found. Run 'lc init' first")
+	}
+
+	// Validate component exists
+	comp, err := components.GetComponent(componentID)
+	if err != nil {
+		return fmt.Errorf("unknown component: %s", componentID)
+	}
+
+	// Load config
+	cfg := config.Get()
+	if cfg == nil {
+		return fmt.Errorf("failed to load configuration")
+	}
+
+	// Check if enabled
+	enabledComponents := getEnabledComponents(cfg)
+	found := false
+	for _, enabled := range enabledComponents {
+		if enabled == componentID {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		printWarning(fmt.Sprintf("Component '%s' is not enabled", componentID))
+		return nil
+	}
+
+	// Update configuration
+	if err := disableComponent(cfg, comp); err != nil {
+		return err
+	}
+
+	// Save configuration
+	if err := config.Save(); err != nil {
+		return fmt.Errorf("failed to save configuration: %w", err)
+	}
+
+	printSuccess(fmt.Sprintf("Removed component: %s", comp.Name))
+
+	return nil
+}
+
+func runComponentInfo(cmd *cobra.Command, args []string) error {
+	componentID := args[0]
+
+	// Get component
+	comp, err := components.GetComponent(componentID)
+	if err != nil {
+		return fmt.Errorf("unknown component: %s", componentID)
+	}
+
+	// Display component information
+	fmt.Printf("\n%s\n", comp.Name)
+	fmt.Println(strings.Repeat("─", len(comp.Name)))
+	fmt.Printf("ID: %s\n", comp.ID)
+	fmt.Printf("Category: %s\n", strings.Title(comp.Category))
+	fmt.Printf("Description: %s\n", comp.Description)
+
+	// Resource requirements
+	fmt.Printf("\nResource Requirements:\n")
+	fmt.Printf("  Minimum RAM: %s\n", FormatBytes(comp.MinRAM))
+
+	// Required services
+	if len(comp.Services) > 0 {
+		fmt.Printf("\nRequired Services:\n")
+		for _, service := range comp.Services {
+			fmt.Printf("  • %s\n", service)
+		}
+	}
+
+	// Available models
+	if len(comp.Models) > 0 {
+		fmt.Printf("\nAvailable Models:\n")
+		for _, model := range comp.Models {
+			fmt.Printf("  • %s (%s)", model.Name, model.Size)
+			if model.Default {
+				fmt.Print(" [Recommended]")
+			}
+			if model.Dimensions > 0 {
+				fmt.Printf(" - %d dimensions", model.Dimensions)
+			}
+			fmt.Println()
+		}
+	}
+
+	// Additional configuration
+	if len(comp.Config) > 0 {
+		fmt.Printf("\nAdditional Configuration:\n")
+		for key, value := range comp.Config {
+			fmt.Printf("  %s: %v\n", key, value)
+		}
+	}
+
+	return nil
+}
+
+// Helper functions
+
+// getEnabledComponents returns list of enabled component IDs from config
+func getEnabledComponents(cfg *config.Config) []string {
+	var components []string
+
+	// Check AI services (LLM and embedding use same service)
+	if cfg.Services.AI.Port > 0 {
+		// Check for LLM models
+		for _, model := range cfg.Services.AI.Models {
+			if !models.IsEmbeddingModel(model) {
+				components = appendUnique(components, "llm")
+				break
+			}
+		}
+
+		// Check for embedding models
+		for _, model := range cfg.Services.AI.Models {
+			if models.IsEmbeddingModel(model) {
+				components = appendUnique(components, "embedding")
+				break
+			}
+		}
+	}
+
+	// Check database
+	if cfg.Services.Database.Type != "" {
+		// Check for pgvector
+		for _, ext := range cfg.Services.Database.Extensions {
+			if ext == "pgvector" {
+				components = appendUnique(components, "vector")
+				break
+			}
+		}
+	}
+
+	// Check cache
+	if cfg.Services.Cache.Type != "" {
+		components = appendUnique(components, "cache")
+	}
+
+	// Check queue
+	if cfg.Services.Queue.Type != "" {
+		components = appendUnique(components, "queue")
+	}
+
+	// Check storage
+	if cfg.Services.Storage.Type != "" {
+		components = appendUnique(components, "storage")
+	}
+
+	return components
+}
+
+// enableComponent updates config to enable a component
+func enableComponent(cfg *config.Config, comp components.Component) error {
+	v := config.GetViper()
+
+	switch comp.ID {
+	case "llm", "embedding":
+		// Enable AI service if not already
+		if cfg.Services.AI.Port == 0 {
+			v.Set("services.ai.port", 11434)
+		}
+
+	case "vector":
+		// Enable PostgreSQL with pgvector
+		v.Set("services.database.type", "postgres")
+		v.Set("services.database.port", 5432)
+		v.Set("services.database.extensions", []string{"pgvector"})
+
+	case "cache":
+		v.Set("services.cache.type", "redis")
+		v.Set("services.cache.port", 6379)
+
+	case "queue":
+		v.Set("services.queue.type", "redis")
+		v.Set("services.queue.port", 6380)
+
+	case "storage":
+		v.Set("services.storage.type", "minio")
+		v.Set("services.storage.port", 9000)
+		v.Set("services.storage.console", 9001)
+
+	case "stt":
+		// Speech-to-text would be configured here
+		return fmt.Errorf("speech-to-text component not yet implemented")
+	}
+
+	return nil
+}
+
+// disableComponent updates config to disable a component
+func disableComponent(cfg *config.Config, comp components.Component) error {
+	v := config.GetViper()
+
+	switch comp.ID {
+	case "llm", "embedding":
+		// Don't disable AI service entirely, just remove models
+		// This is complex and would need more logic
+		return fmt.Errorf("removing AI components not yet implemented")
+
+	case "vector":
+		// Remove pgvector extension
+		extensions := cfg.Services.Database.Extensions
+		newExtensions := []string{}
+		for _, ext := range extensions {
+			if ext != "pgvector" {
+				newExtensions = append(newExtensions, ext)
+			}
+		}
+		v.Set("services.database.extensions", newExtensions)
+
+	case "cache":
+		v.Set("services.cache.type", "")
+
+	case "queue":
+		v.Set("services.queue.type", "")
+
+	case "storage":
+		v.Set("services.storage.type", "")
+	}
+
+	return nil
+}
+
+// appendUnique appends a string to slice if not already present
+func appendUnique(slice []string, item string) []string {
+	for _, existing := range slice {
+		if existing == item {
+			return slice
+		}
+	}
+	return append(slice, item)
+}
