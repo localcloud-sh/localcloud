@@ -1,3 +1,4 @@
+// internal/components/registry.go
 // Package components provides component registry and management for LocalCloud
 package components
 
@@ -52,32 +53,21 @@ var Registry = map[string]Component{
 	"embedding": {
 		ID:          "embedding",
 		Name:        "Embeddings (Semantic search)",
-		Description: "Convert text to vectors for semantic search and similarity",
+		Description: "Text embeddings for semantic search and similarity",
 		Category:    "ai",
-		Services:    []string{"ai"}, // Uses the same Ollama service
+		Services:    []string{"ai"},
 		Models: []ModelOption{
-			{Name: "nomic-embed-text", Size: "274MB", RAM: 1 * GB, Default: true, Dimensions: 768, Family: "bert"},
-			{Name: "mxbai-embed-large", Size: "670MB", RAM: 2 * GB, Dimensions: 1024, Family: "bert"},
-			{Name: "all-minilm", Size: "46MB", RAM: 512 * MB, Dimensions: 384, Family: "bert"},
-			{Name: "bge-base", Size: "420MB", RAM: 1 * GB, Dimensions: 768, Family: "bert"},
+			{Name: "nomic-embed-text", Size: "274MB", Dimensions: 768, Default: true},
+			{Name: "mxbai-embed-large", Size: "670MB", Dimensions: 1024},
+			{Name: "all-minilm", Size: "46MB", Dimensions: 384},
+			{Name: "bge-small", Size: "134MB", Dimensions: 384},
 		},
-		MinRAM: 1 * GB,
-	},
-	"vector": {
-		ID:          "vector",
-		Name:        "Vector Database (pgvector)",
-		Description: "Store and search embeddings with PostgreSQL + pgvector",
-		Category:    "database",
-		Services:    []string{"postgres"},
-		MinRAM:      2 * GB,
-		Config: map[string]interface{}{
-			"extensions": []string{"pgvector"},
-		},
+		MinRAM: 2 * GB,
 	},
 	"stt": {
 		ID:          "stt",
 		Name:        "Speech-to-Text (Whisper)",
-		Description: "Transcribe audio to text",
+		Description: "Convert speech to text using Whisper models",
 		Category:    "ai",
 		Services:    []string{"whisper"},
 		Models: []ModelOption{
@@ -87,10 +77,21 @@ var Registry = map[string]Component{
 		},
 		MinRAM: 1 * GB,
 	},
+	"vector": {
+		ID:          "vector",
+		Name:        "Vector Database (pgvector)",
+		Description: "PostgreSQL with pgvector for similarity search",
+		Category:    "database",
+		Services:    []string{"postgres"},
+		MinRAM:      1 * GB,
+		Config: map[string]interface{}{
+			"extensions": []string{"pgvector"},
+		},
+	},
 	"cache": {
 		ID:          "cache",
 		Name:        "Cache (Redis)",
-		Description: "High-performance in-memory caching",
+		Description: "In-memory cache for temporary data and sessions",
 		Category:    "infrastructure",
 		Services:    []string{"cache"},
 		MinRAM:      512 * MB,
@@ -218,4 +219,13 @@ func ComponentsToServices(componentIDs []string) []string {
 	}
 
 	return services
+}
+
+// IsAIComponent returns true if the component requires AI models
+func IsAIComponent(id string) bool {
+	comp, err := GetComponent(id)
+	if err != nil {
+		return false
+	}
+	return comp.Category == "ai" && len(comp.Models) > 0
 }

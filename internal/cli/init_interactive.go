@@ -1,3 +1,4 @@
+// internal/cli/init_interactive.go
 // Package cli implements the command-line interface for LocalCloud
 package cli
 
@@ -82,10 +83,15 @@ func selectProjectType() (string, error) {
 	var typeMap = make(map[string]string)
 
 	// Build options from templates
-	for key, tmpl := range components.ProjectTemplates {
-		option := fmt.Sprintf("%s - %s", tmpl.Name, tmpl.Description)
-		options = append(options, option)
-		typeMap[option] = key
+	// Order templates for better UX
+	templateOrder := []string{"rag", "chatbot", "voice", "api", "custom"}
+
+	for _, key := range templateOrder {
+		if tmpl, ok := components.ProjectTemplates[key]; ok {
+			option := fmt.Sprintf("%s - %s", tmpl.Name, tmpl.Description)
+			options = append(options, option)
+			typeMap[option] = key
+		}
 	}
 
 	prompt := &survey.Select{
@@ -115,31 +121,43 @@ func selectComponents(projectType string) ([]string, error) {
 	var options []string
 	var componentMap = make(map[string]string)
 
-	// Group by category
-	categories := []string{"AI", "Database", "Infrastructure"}
-	categoryColors := map[string]func(a ...interface{}) string{
-		"AI":             color.New(color.FgGreen).SprintFunc(),
-		"Database":       color.New(color.FgBlue).SprintFunc(),
-		"Infrastructure": color.New(color.FgYellow).SprintFunc(),
+	// Group by category with specific order
+	categoryOrder := []struct {
+		name  string
+		color func(a ...interface{}) string
+	}{
+		{"AI", color.New(color.FgGreen).SprintFunc()},
+		{"Database", color.New(color.FgBlue).SprintFunc()},
+		{"Infrastructure", color.New(color.FgYellow).SprintFunc()},
 	}
 
-	for _, category := range categories {
-		categoryLower := strings.ToLower(category)
-		comps := components.GetComponentsByCategory(categoryLower)
+	// Component display order within categories
+	componentOrder := map[string][]string{
+		"ai":             {"llm", "embedding", "stt"},
+		"database":       {"vector"},
+		"infrastructure": {"cache", "queue", "storage"},
+	}
 
-		for _, comp := range comps {
-			colorFunc := categoryColors[category]
-			option := fmt.Sprintf("[%s] %s - %s",
-				colorFunc(category), comp.Name, comp.Description)
-			options = append(options, option)
-			componentMap[option] = comp.ID
+	for _, cat := range categoryOrder {
+		categoryLower := strings.ToLower(cat.name)
+
+		// Get components in specified order
+		if compIDs, ok := componentOrder[categoryLower]; ok {
+			for _, compID := range compIDs {
+				if comp, err := components.GetComponent(compID); err == nil {
+					option := fmt.Sprintf("[%s] %s - %s",
+						cat.color(cat.name), comp.Name, comp.Description)
+					options = append(options, option)
+					componentMap[option] = comp.ID
+				}
+			}
 		}
 	}
 
 	prompt := &survey.MultiSelect{
-		Message:  "Select components you need:",
+		Message:  "Select components you need: (Press <space> to select, <enter> to confirm)",
 		Options:  options,
-		Help:     "Use space to select/deselect, Enter to confirm",
+		Help:     "Use arrow keys to navigate, space to select/deselect, Enter to confirm",
 		PageSize: 10,
 	}
 
@@ -213,41 +231,54 @@ func selectEmbeddingModel(manager *models.Manager) (string, error) {
 		if info != nil {
 			dims = fmt.Sprintf(", %d dims", info.Dimensions)
 		}
-
-		option := fmt.Sprintf("✓ %s (%s%s) [Installed]",
-			model.Name, FormatBytes(model.Size), dims)
+		option := fmt.Sprintf("✓ %s%s [Installed]", model.Name, dims)
 		options = append(options, option)
 		modelMap[option] = model.Name
 	}
 
-	// Add predefined but not installed models
-	for _, predefined := range models.PredefinedEmbeddingModels {
+	// Add popular embedding models if not installed
+	popularModels := []string{"nomic-embed-text", "mxbai-embed-large", "all-minilm"}
+	for _, modelName := range popularModels {
 		installed := false
-		for _, inst := range installedEmbeddings {
-			if inst.Name == predefined.Name {
+		for _, m := range installedEmbeddings {
+			if m.Name == modelName {
 				installed = true
 				break
 			}
 		}
-
 		if !installed {
-			option := fmt.Sprintf("  %s (%s, %d dims) [Not installed]",
-				predefined.Name, predefined.Size, predefined.Dimensions)
+			info := models.GetEmbeddingModelInfo(modelName)
+			var details string
+			if info != nil {
+				details = fmt.Sprintf(" (%s, %d dims)", info.Size, info.Dimensions)
+			}
+			option := fmt.Sprintf("  %s%s [Not installed]", modelName, details)
+			if modelName == "nomic-embed-text" {
+				option += " (Recommended)"
+			}
 			options = append(options, option)
-			modelMap[option] = predefined.Name
+			modelMap[option] = modelName
 		}
 	}
 
-	// Add custom option
-	customOption := "  📝 Enter custom model name..."
+	// Add custom model option
+	customOption := "  💡 Use custom model..."
 	options = append(options, customOption)
 
-	// Show prompt
+	// Find default option
+	defaultIndex := 0
+	for i, opt := range options {
+		if strings.Contains(opt, "(Recommended)") {
+			defaultIndex = i
+			break
+		}
+	}
+
 	prompt := &survey.Select{
-		Message:  "Select embedding model:",
-		Options:  options,
-		Help:     "Models marked with ✓ are already installed",
-		PageSize: 10,
+		Message: "Select embedding model:",
+		Options: options,
+		Default: options[defaultIndex],
+		Help:    "Models marked with ✓ are already installed",
 	}
 
 	var selected string
@@ -267,6 +298,24 @@ func selectEmbeddingModel(manager *models.Manager) (string, error) {
 		if err != nil {
 			return "", err
 		}
+
+		// Offer to download custom model
+		fmt.Printf("\n%s Custom model '%s' selected.\n",
+			infoColor("ℹ"), customModel)
+
+		var install bool
+		installPrompt := &survey.Confirm{
+			Message: "Would you like to download it now?",
+			Default: true,
+		}
+		survey.AskOne(installPrompt, &install)
+
+		if install {
+			if err := downloadModel(manager, customModel); err != nil {
+				return "", fmt.Errorf("failed to download model: %w", err)
+			}
+		}
+
 		return customModel, nil
 	}
 
@@ -373,67 +422,29 @@ func selectComponentModel(comp components.Component, manager *models.Manager) (s
 	return modelName, nil
 }
 
-// downloadModel downloads a model with progress
-func downloadModel(manager *models.Manager, modelName string) error {
-	fmt.Printf("\nDownloading %s...\n", modelName)
-
-	progress := make(chan models.PullProgress)
-	done := make(chan error)
-
-	// Start pull in goroutine
-	go func() {
-		done <- manager.Pull(modelName, progress)
-	}()
-
-	// Show progress
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
-	spin.Start()
-
-	for {
-		select {
-		case p := <-progress:
-			spin.Stop()
-			if p.Total > 0 {
-				fmt.Printf("\r%s: %d%% [%s] %s/%s",
-					p.Status,
-					p.Percentage,
-					progressBar(p.Percentage, 30),
-					FormatBytes(p.Completed),
-					FormatBytes(p.Total))
-			} else {
-				fmt.Printf("\r%s: %s", p.Status, p.Digest)
-			}
-
-		case err := <-done:
-			spin.Stop()
-			fmt.Println()
-			if err != nil {
-				return err
-			}
-			printSuccess(fmt.Sprintf("Model %s downloaded successfully!", modelName))
-			return nil
-		}
-	}
-}
-
-// checkResources checks if system has enough resources
-func checkResources(componentIDs []string, models map[string]string) error {
+// checkResources performs resource checks for selected components
+func checkResources(componentIDs []string, selectedModels map[string]string) error {
+	// Calculate total RAM requirement
 	totalRAM := components.CalculateRAMRequirement(componentIDs)
 
-	// Get available RAM
-	var availableRAM int64
-	if runtime.GOOS == "darwin" {
-		// macOS specific
-		// This is simplified - in production use proper system calls
-		availableRAM = 8 * components.GB
-	} else {
-		// Linux/Windows
-		availableRAM = 8 * components.GB
+	// Add model-specific RAM requirements
+	for compID, modelName := range selectedModels {
+		comp, _ := components.GetComponent(compID)
+		for _, model := range comp.Models {
+			if model.Name == modelName && model.RAM > 0 {
+				totalRAM += model.RAM - comp.MinRAM // Adjust for model-specific RAM
+				break
+			}
+		}
 	}
 
+	// Get available system resources
+	availableRAM := getAvailableRAM()
+
+	// Check if we have enough RAM
 	if totalRAM > availableRAM {
 		fmt.Printf("\n%s Selected components need %s RAM, you have %s available\n",
-			warningColor("⚠️ Warning:"),
+			warningColor("⚠️  Warning:"),
 			FormatBytes(totalRAM),
 			FormatBytes(availableRAM))
 
@@ -442,113 +453,193 @@ func checkResources(componentIDs []string, models map[string]string) error {
 			Message: "Continue anyway?",
 			Default: false,
 		}
-		survey.AskOne(prompt, &proceed)
-
-		if !proceed {
-			return fmt.Errorf("cancelled by user")
+		err := survey.AskOne(prompt, &proceed)
+		if err != nil || !proceed {
+			return fmt.Errorf("insufficient resources")
 		}
 	}
 
 	return nil
 }
 
+// internal/cli/init_interactive.go - Replace generateInteractiveConfig
+
 // generateInteractiveConfig generates configuration from selections
-func generateInteractiveConfig(projectName, projectType string, componentIDs []string, models map[string]string) *config.Config {
-	cfg := config.GetDefaults()
+func generateInteractiveConfig(projectName, projectType string, componentIDs []string, selectedModels map[string]string) *config.Config {
+	// Start with empty config, not defaults
+	cfg := &config.Config{
+		Version: "1",
+		Project: config.ProjectConfig{
+			Name: projectName,
+			Type: projectType,
+		},
+		Services: config.ServicesConfig{}, // Empty services
+		Resources: config.ResourcesConfig{
+			MemoryLimit: "4GB",
+			CPULimit:    "2",
+		},
+		Connectivity: config.ConnectivityConfig{
+			Enabled: false,
+			Tunnel: config.TunnelConfig{
+				Provider: "cloudflare",
+			},
+		},
+		CLI: config.CLIConfig{
+			ShowServiceInfo: true,
+		},
+	}
 
-	// Set project info
-	cfg.Project.Name = projectName
-	cfg.Project.Type = projectType
-
-	// Enable services based on components
-	services := components.ComponentsToServices(componentIDs)
-
-	// Configure services
-	for _, service := range services {
-		switch service {
-		case "ai":
-			// Already enabled by default
-			// Add all selected models
-			cfg.Services.AI.Models = []string{}
-			for compID, modelName := range models {
-				if compID == "llm" || compID == "embedding" {
-					cfg.Services.AI.Models = append(cfg.Services.AI.Models, modelName)
+	// Only configure selected components
+	for _, compID := range componentIDs {
+		switch compID {
+		case "llm", "embedding":
+			if cfg.Services.AI.Port == 0 {
+				cfg.Services.AI = config.AIConfig{
+					Port:   11434,
+					Models: []string{},
 				}
 			}
-			// Set default model
-			if llmModel, ok := models["llm"]; ok {
-				cfg.Services.AI.Default = llmModel
+			if model, ok := selectedModels[compID]; ok {
+				cfg.Services.AI.Models = append(cfg.Services.AI.Models, model)
 			}
 
-		case "postgres":
-			// Check if pgvector needed
-			for _, compID := range componentIDs {
-				if compID == "vector" {
-					cfg.Services.Database.Extensions = []string{"pgvector"}
-					break
-				}
+		case "vector":
+			cfg.Services.Database = config.DatabaseConfig{
+				Type:       "postgres",
+				Version:    "16",
+				Port:       5432,
+				Extensions: []string{"pgvector"},
 			}
 
 		case "cache":
-			// Already configured in defaults
+			cfg.Services.Cache = config.CacheConfig{
+				Type:            "redis",
+				Port:            6379,
+				MaxMemory:       "512mb",
+				MaxMemoryPolicy: "allkeys-lru",
+				Persistence:     false,
+			}
 
 		case "queue":
-			// Already configured in defaults
+			cfg.Services.Queue = config.QueueConfig{
+				Type:            "redis",
+				Port:            6380,
+				MaxMemory:       "1gb",
+				MaxMemoryPolicy: "noeviction",
+				Persistence:     true,
+				AppendOnly:      true,
+				AppendFsync:     "everysec",
+			}
 
-		case "minio":
-			// Already configured in defaults
+		case "storage":
+			cfg.Services.Storage = config.StorageConfig{
+				Type:    "minio",
+				Port:    9000,
+				Console: 9001,
+			}
+
+		case "stt":
+			cfg.Services.Whisper = config.WhisperConfig{
+				Type: "localllama",
+				Port: 9000,
+			}
+			if model, ok := selectedModels[compID]; ok {
+				cfg.Services.Whisper.Model = model
+			}
 		}
+	}
+
+	// Set default model for AI service
+	if len(cfg.Services.AI.Models) > 0 {
+		cfg.Services.AI.Default = cfg.Services.AI.Models[0]
 	}
 
 	return cfg
 }
 
-// createProjectStructure creates the project directory structure
+// createProjectStructure creates project directories
 func createProjectStructure(projectName string) error {
 	// Create .localcloud directory
-	configPath := filepath.Join(projectPath, ".localcloud")
-	if err := os.MkdirAll(configPath, 0755); err != nil {
+	localcloudDir := filepath.Join(".", ".localcloud")
+	if err := os.MkdirAll(localcloudDir, 0755); err != nil {
 		return fmt.Errorf("failed to create .localcloud directory: %w", err)
 	}
 
-	// Create .gitignore
-	gitignore := filepath.Join(projectPath, ".gitignore")
-	gitignoreContent := `.localcloud/data/
+	// Create .gitignore if it doesn't exist
+	gitignorePath := ".gitignore"
+	if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
+		gitignoreContent := `# LocalCloud
+.localcloud/data/
 .localcloud/logs/
-.localcloud/tunnels/
-.env.local
 *.log
 `
-	if err := os.WriteFile(gitignore, []byte(gitignoreContent), 0644); err != nil {
-		return fmt.Errorf("failed to create .gitignore: %w", err)
+		if err := os.WriteFile(gitignorePath, []byte(gitignoreContent), 0644); err != nil {
+			return fmt.Errorf("failed to create .gitignore: %w", err)
+		}
 	}
 
 	return nil
 }
 
-// saveInteractiveConfig saves the configuration with component info
+// saveInteractiveConfig saves configuration to file
 func saveInteractiveConfig(cfg *config.Config, projectName string) error {
-	// Convert to viper for saving
+	// Initialize viper
 	v := config.GetViper()
 
-	// Set all values
+	// Set all configuration values
 	v.Set("version", cfg.Version)
-	v.Set("project", cfg.Project)
-	v.Set("services", cfg.Services)
-	v.Set("resources", cfg.Resources)
-	v.Set("connectivity", cfg.Connectivity)
-	v.Set("cli", cfg.CLI)
+	v.Set("project.name", cfg.Project.Name)
+	v.Set("project.type", cfg.Project.Type)
 
-	// Save to file
-	configFile := filepath.Join(projectPath, ".localcloud", "config.yaml")
-	if err := v.WriteConfigAs(configFile); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
+	// Set service configurations
+	if cfg.Services.AI.Port > 0 {
+		v.Set("services.ai.port", cfg.Services.AI.Port)
+		v.Set("services.ai.models", cfg.Services.AI.Models)
+		v.Set("services.ai.default", cfg.Services.AI.Default)
 	}
 
-	return nil
+	if cfg.Services.Database.Type != "" {
+		v.Set("services.database.type", cfg.Services.Database.Type)
+		v.Set("services.database.version", cfg.Services.Database.Version)
+		v.Set("services.database.port", cfg.Services.Database.Port)
+		v.Set("services.database.extensions", cfg.Services.Database.Extensions)
+	}
+
+	if cfg.Services.Cache.Type != "" {
+		v.Set("services.cache.type", cfg.Services.Cache.Type)
+		v.Set("services.cache.port", cfg.Services.Cache.Port)
+		v.Set("services.cache.maxmemory", cfg.Services.Cache.MaxMemory)
+		v.Set("services.cache.maxmemory_policy", cfg.Services.Cache.MaxMemoryPolicy)
+		v.Set("services.cache.persistence", cfg.Services.Cache.Persistence)
+	}
+
+	if cfg.Services.Queue.Type != "" {
+		v.Set("services.queue.type", cfg.Services.Queue.Type)
+		v.Set("services.queue.port", cfg.Services.Queue.Port)
+		v.Set("services.queue.maxmemory", cfg.Services.Queue.MaxMemory)
+		v.Set("services.queue.maxmemory_policy", cfg.Services.Queue.MaxMemoryPolicy)
+		v.Set("services.queue.persistence", cfg.Services.Queue.Persistence)
+		v.Set("services.queue.appendfsync", cfg.Services.Queue.AppendFsync)
+	}
+
+	if cfg.Services.Storage.Type != "" {
+		v.Set("services.storage.type", cfg.Services.Storage.Type)
+		v.Set("services.storage.port", cfg.Services.Storage.Port)
+		v.Set("services.storage.console", cfg.Services.Storage.Console)
+	}
+
+	if cfg.Services.Whisper.Type != "" {
+		v.Set("services.whisper.type", cfg.Services.Whisper.Type)
+		v.Set("services.whisper.port", cfg.Services.Whisper.Port)
+		v.Set("services.whisper.model", cfg.Services.Whisper.Model)
+	}
+
+	// Save configuration
+	configPath := filepath.Join(".localcloud", "config.yaml")
+	return v.WriteConfigAs(configPath)
 }
 
-// showProjectSummary displays the project configuration summary
+// showProjectSummary displays project configuration summary
 func showProjectSummary(projectName string, componentIDs []string, models map[string]string) {
 	fmt.Println()
 	fmt.Println(successColor("✓ Project configuration created!"))
@@ -601,4 +692,67 @@ func showProjectSummary(projectName string, componentIDs []string, models map[st
 	fmt.Println()
 	fmt.Println("Ready to start? Run: " + color.New(color.FgGreen, color.Bold).Sprint("lc start"))
 	fmt.Println()
+}
+
+// downloadModel downloads a model using the manager
+func downloadModel(manager *models.Manager, modelName string) error {
+	// Create progress channel
+	progress := make(chan models.PullProgress)
+	done := make(chan error)
+
+	// Start pull in goroutine
+	go func() {
+		done <- manager.Pull(modelName, progress)
+	}()
+
+	// Create spinner
+	s := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
+	s.Suffix = fmt.Sprintf(" Downloading %s...", modelName)
+	s.Start()
+
+	// Handle progress updates
+	for {
+		select {
+		case p, ok := <-progress:
+			if !ok {
+				// Channel closed, wait for final result
+				continue
+			}
+			s.Stop()
+			if p.Total > 0 {
+				percentage := int((p.Completed * 100) / p.Total)
+				bar := progressBar(percentage, 30)
+				fmt.Printf("\r%s: %d%% [%s] %s/%s",
+					p.Status,
+					percentage,
+					bar,
+					FormatBytes(p.Completed),
+					FormatBytes(p.Total))
+			} else {
+				fmt.Printf("\r%s: %s", p.Status, p.Digest)
+			}
+			s.Start()
+
+		case err := <-done:
+			s.Stop()
+			fmt.Println() // New line after progress
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%s Model %s downloaded successfully!\n", successColor("✓"), modelName)
+			return nil
+		}
+	}
+}
+
+// Helper functions for resource checking
+func getAvailableRAM() int64 {
+	// This is a simplified version - in production you'd use runtime.MemStats
+	// or system-specific calls to get actual available memory
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	// For now, return a reasonable default based on system
+	// In a real implementation, this would query actual system memory
+	return 8 * 1024 * 1024 * 1024 // 8GB default
 }

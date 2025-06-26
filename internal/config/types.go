@@ -13,8 +13,9 @@ type Config struct {
 
 // ProjectConfig represents project configuration
 type ProjectConfig struct {
-	Name string `yaml:"name" json:"name"`
-	Type string `yaml:"type" json:"type"`
+	Name       string   `yaml:"name" json:"name"`
+	Type       string   `yaml:"type" json:"type"`
+	Components []string `yaml:"components" json:"components"` // Seçilen componentler
 }
 
 // ServicesConfig represents all services configuration
@@ -24,6 +25,7 @@ type ServicesConfig struct {
 	Cache    CacheConfig    `yaml:"cache" json:"cache"`
 	Queue    QueueConfig    `yaml:"queue" json:"queue"`
 	Storage  StorageConfig  `yaml:"storage" json:"storage"`
+	Whisper  WhisperConfig  `yaml:"whisper" json:"whisper"` // Bu satırı ekle
 }
 
 // AIConfig represents AI service configuration
@@ -111,4 +113,9 @@ type NgrokConfig struct {
 // CLIConfig represents CLI configuration
 type CLIConfig struct {
 	ShowServiceInfo bool `yaml:"show_service_info" json:"show_service_info"`
+}
+type WhisperConfig struct {
+	Type  string `yaml:"type" json:"type"`
+	Port  int    `yaml:"port" json:"port"`
+	Model string `yaml:"model" json:"model"`
 }

@@ -85,7 +85,7 @@ func Save() error {
 	return nil
 }
 
-// GetDefaults returns default configuration
+// GetDefaults returns minimal default configuration
 func GetDefaults() *Config {
 	return &Config{
 		Version: "1",
@@ -94,38 +94,7 @@ func GetDefaults() *Config {
 			Type: "custom",
 		},
 		Services: ServicesConfig{
-			AI: AIConfig{
-				Port:    11434,
-				Models:  []string{"qwen2.5:3b"},
-				Default: "qwen2.5:3b",
-			},
-			Database: DatabaseConfig{
-				Type:       "postgres",
-				Version:    "16",
-				Port:       5432,
-				Extensions: []string{},
-			},
-			Cache: CacheConfig{
-				Type:            "redis",
-				Port:            6379,
-				MaxMemory:       "512mb",
-				MaxMemoryPolicy: "allkeys-lru",
-				Persistence:     false,
-			},
-			Queue: QueueConfig{
-				Type:            "redis",
-				Port:            6380,
-				MaxMemory:       "1gb",
-				MaxMemoryPolicy: "noeviction",
-				Persistence:     true,
-				AppendOnly:      true,
-				AppendFsync:     "everysec",
-			},
-			Storage: StorageConfig{
-				Type:    "minio",
-				Port:    9000,
-				Console: 9001,
-			},
+			// Empty services by default - let wizard populate them
 		},
 		Resources: ResourcesConfig{
 			MemoryLimit: "4GB",

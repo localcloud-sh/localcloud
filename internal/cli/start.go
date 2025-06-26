@@ -59,36 +59,39 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load configuration")
 	}
 
-	// Determine which services to start based on components
+	// Get enabled components from config
+	enabledComponents := getEnabledComponents(cfg)
+	if len(enabledComponents) == 0 {
+		fmt.Println(warningColor("No components configured in this project."))
+		fmt.Println("\nThis project was created without any components.")
+		fmt.Println("To add components, run:")
+		fmt.Println("  • lc component add <component-id>")
+		fmt.Println("  • Or re-run: lc init --interactive")
+		fmt.Println("\nAvailable components:")
+		fmt.Println("  • llm        - Large language models")
+		fmt.Println("  • embedding  - Text embeddings")
+		fmt.Println("  • vector     - Vector database (pgvector)")
+		fmt.Println("  • cache      - Redis cache")
+		fmt.Println("  • queue      - Redis queue")
+		fmt.Println("  • storage    - Object storage (MinIO)")
+		fmt.Println("  • stt        - Speech-to-text (Whisper)")
+		return nil
+	}
+
+	// Show what components are configured
+	fmt.Printf("Starting services for configured components: %s\n", strings.Join(enabledComponents, ", "))
+
+	// Determine which services to start
 	var servicesToStart []string
-	startAll := true
 
 	if len(args) > 0 && args[0] != "all" {
 		// Single service specified
 		servicesToStart = []string{args[0]}
-		startAll = false
 	} else if len(startOnly) > 0 {
 		// --only flag used
 		servicesToStart = startOnly
-		startAll = false
 	} else {
-		// Start all enabled components
-		enabledComponents := getEnabledComponents(cfg)
-		if len(enabledComponents) == 0 {
-			fmt.Println(warningColor("No components enabled in this project."))
-			fmt.Println("\nTo add components:")
-			fmt.Println("  • Run: lc init --interactive")
-			fmt.Println("  • Or: lc component add <component-id>")
-			fmt.Println("\nAvailable components:")
-			fmt.Println("  • llm        - Large language models")
-			fmt.Println("  • embedding  - Text embeddings")
-			fmt.Println("  • vector     - Vector database")
-			fmt.Println("  • cache      - Redis cache")
-			fmt.Println("  • queue      - Job queue")
-			return nil
-		}
-
-		// Convert components to services
+		// Start services for enabled components only
 		servicesToStart = components.ComponentsToServices(enabledComponents)
 
 		if verbose {
@@ -110,16 +113,19 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 	defer manager.Close()
 
-	// Start services with progress
+	// Start only the services for enabled components
 	progress := make(chan docker.ServiceProgress)
 	done := make(chan error)
 
 	// Run startup in goroutine
 	go func() {
-		if startAll {
-			done <- manager.StartServices(progress)
-		} else {
+		if len(args) > 0 || len(startOnly) > 0 {
+			// Specific services requested
 			done <- manager.StartSelectedServices(servicesToStart, progress)
+		} else {
+			// Convert components to services and start them
+			componentsAsServices := components.ComponentsToServices(enabledComponents)
+			done <- manager.StartSelectedServices(componentsAsServices, progress)
 		}
 	}()
 
@@ -283,7 +289,21 @@ func showStartedServicesInfo(cfg *config.Config, startedServices map[string]bool
 			fmt.Printf("  Console: http://localhost:%d\n", cfg.Services.Storage.Console)
 			fmt.Println("  Credentials: see ~/.localcloud/minio-credentials")
 			fmt.Println()
+		case "stt":
+			fmt.Println("✓ Speech-to-Text (Whisper)")
+			fmt.Printf("  URL: http://localhost:%d\n", cfg.Services.Whisper.Port)
+			fmt.Println("  Try:")
+			fmt.Println("    # Transcribe audio file")
+			fmt.Printf("    curl -X POST http://localhost:%d/asr \\\n", cfg.Services.Whisper.Port)
+			fmt.Println(`      -F "audio_file=@sample.wav" \`)
+			fmt.Println(`      -F "language=en"`)
+			fmt.Println()
+			if cfg.Services.Whisper.Model != "" {
+				fmt.Printf("  Model: %s\n", cfg.Services.Whisper.Model)
+			}
+			fmt.Println()
 		}
+
 	}
 	if cfg.Services.Database.Type == "postgres" && startedServices["postgres"] {
 		// Check if pgvector extension is enabled

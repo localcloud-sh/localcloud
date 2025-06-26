@@ -287,12 +287,17 @@ func runComponentInfo(cmd *cobra.Command, args []string) error {
 
 // Helper functions
 
+// internal/cli/component.go - Update getEnabledComponents function
+
+// internal/cli/component.go - Replace getEnabledComponents function
+
 // getEnabledComponents returns list of enabled component IDs from config
 func getEnabledComponents(cfg *config.Config) []string {
 	var components []string
 
 	// Check AI services (LLM and embedding use same service)
-	if cfg.Services.AI.Port > 0 {
+	// Only consider it enabled if models are actually configured
+	if cfg.Services.AI.Port > 0 && len(cfg.Services.AI.Models) > 0 {
 		// Check for LLM models
 		for _, model := range cfg.Services.AI.Models {
 			if !models.IsEmbeddingModel(model) {
@@ -310,8 +315,8 @@ func getEnabledComponents(cfg *config.Config) []string {
 		}
 	}
 
-	// Check database
-	if cfg.Services.Database.Type != "" {
+	// Check database - only if actually configured with a type
+	if cfg.Services.Database.Type != "" && cfg.Services.Database.Port > 0 {
 		// Check for pgvector
 		for _, ext := range cfg.Services.Database.Extensions {
 			if ext == "pgvector" {
@@ -321,19 +326,24 @@ func getEnabledComponents(cfg *config.Config) []string {
 		}
 	}
 
-	// Check cache
-	if cfg.Services.Cache.Type != "" {
+	// Check cache - only if type is set
+	if cfg.Services.Cache.Type != "" && cfg.Services.Cache.Port > 0 {
 		components = appendUnique(components, "cache")
 	}
 
-	// Check queue
-	if cfg.Services.Queue.Type != "" {
+	// Check queue - only if type is set
+	if cfg.Services.Queue.Type != "" && cfg.Services.Queue.Port > 0 {
 		components = appendUnique(components, "queue")
 	}
 
-	// Check storage
-	if cfg.Services.Storage.Type != "" {
+	// Check storage - only if type is set
+	if cfg.Services.Storage.Type != "" && cfg.Services.Storage.Port > 0 {
 		components = appendUnique(components, "storage")
+	}
+
+	// Check STT/Whisper - only if type is set
+	if cfg.Services.Whisper.Type != "" && cfg.Services.Whisper.Port > 0 {
+		components = appendUnique(components, "stt")
 	}
 
 	return components
@@ -370,8 +380,10 @@ func enableComponent(cfg *config.Config, comp components.Component) error {
 		v.Set("services.storage.console", 9001)
 
 	case "stt":
-		// Speech-to-text would be configured here
-		return fmt.Errorf("speech-to-text component not yet implemented")
+		// Enable Whisper service
+		v.Set("services.whisper.type", "localllama")
+		v.Set("services.whisper.port", 9000)
+		// Model will be set during init process
 	}
 
 	return nil

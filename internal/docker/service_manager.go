@@ -225,6 +225,8 @@ func (sm *ServiceManager) StopAll(progress chan<- ServiceProgress) error {
 	return nil
 }
 
+// internal/docker/service_manager.go - Update startService method to include whisper
+
 // startService starts a specific service
 func (sm *ServiceManager) startService(service string) error {
 	fmt.Printf("DEBUG: startService called for: %s\n", service)
@@ -250,38 +252,90 @@ func (sm *ServiceManager) startService(service string) error {
 		starter := NewStorageServiceStarter(sm.manager)
 		fmt.Println("DEBUG: Created StorageServiceStarter")
 		return starter.Start()
+	case "whisper", "stt":
+		// For now, return an error since Whisper starter not implemented
+		// starter := NewWhisperServiceStarter(sm.manager)
+		// return starter.Start()
+		return fmt.Errorf("whisper service not yet implemented")
 	default:
 		return fmt.Errorf("unknown service: %s", service)
 	}
 }
 
-// getServiceOrder returns the order in which services should be started
 func (sm *ServiceManager) getServiceOrder() []string {
-	services := []string{}
+	// This function should NOT be used anymore!
+	// We should use component-based service selection
+	return []string{}
+}
+func (sm *ServiceManager) StartServicesByComponents(components []string, progress chan<- ServiceProgress) error {
+	defer close(progress)
 
-	// AI service first (if configured)
-	if sm.manager.config.Services.AI.Port > 0 {
-		services = append(services, "ai")
+	fmt.Printf("DEBUG: ServiceManager.StartServicesByComponents called with components: %v\n", components)
+
+	// Initialize project resources
+	fmt.Println("DEBUG: Initializing project resources...")
+	if err := sm.manager.InitializeProject(); err != nil {
+		fmt.Printf("DEBUG: InitializeProject failed: %v\n", err)
+		return err
 	}
 
-	// Database (if configured)
-	if sm.manager.config.Services.Database.Type != "" {
-		services = append(services, "postgres")
+	// Convert components to services using the components package
+	services := sm.componentsToServices(components)
+	fmt.Printf("DEBUG: Services to start: %v\n", services)
+
+	var lastError error
+	for _, service := range services {
+		fmt.Printf("DEBUG: Starting service: %s\n", service)
+
+		progress <- ServiceProgress{
+			Service: service,
+			Status:  "starting",
+		}
+
+		if err := sm.startService(service); err != nil {
+			fmt.Printf("DEBUG: Service %s failed with error: %v\n", service, err)
+			progress <- ServiceProgress{
+				Service: service,
+				Status:  "failed",
+				Error:   err.Error(),
+			}
+			lastError = err
+			continue
+		}
+
+		fmt.Printf("DEBUG: Service %s started successfully\n", service)
+		progress <- ServiceProgress{
+			Service: service,
+			Status:  "started",
+		}
 	}
 
-	// Cache service (if configured)
-	if sm.manager.config.Services.Cache.Type != "" {
-		services = append(services, "cache")
+	return lastError
+}
+func (sm *ServiceManager) componentsToServices(componentIDs []string) []string {
+	serviceMap := make(map[string]bool)
+
+	for _, compID := range componentIDs {
+		switch compID {
+		case "llm", "embedding":
+			serviceMap["ai"] = true
+		case "vector":
+			serviceMap["postgres"] = true
+		case "cache":
+			serviceMap["cache"] = true
+		case "queue":
+			serviceMap["queue"] = true
+		case "storage":
+			serviceMap["minio"] = true
+		case "stt":
+			serviceMap["whisper"] = true
+		}
 	}
 
-	// Queue service (if configured)
-	if sm.manager.config.Services.Queue.Type != "" {
-		services = append(services, "queue")
-	}
-
-	// Storage (if configured)
-	if sm.manager.config.Services.Storage.Type != "" {
-		services = append(services, "minio")
+	// Convert map to slice
+	var services []string
+	for service := range serviceMap {
+		services = append(services, service)
 	}
 
 	return services

@@ -138,6 +138,10 @@ func (m *Manager) CleanupProject() error {
 
 	return nil
 }
+func (m *Manager) StartServicesByComponents(components []string, progress chan<- ServiceProgress) error {
+	fmt.Printf("DEBUG: Manager.StartServicesByComponents called with components: %v\n", components)
+	return m.services.StartServicesByComponents(components, progress)
+}
 
 // StartServices delegates to service manager
 func (m *Manager) StartServices(progress chan<- ServiceProgress) error {
