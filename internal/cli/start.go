@@ -259,12 +259,7 @@ func showStartedServicesInfo(cfg *config.Config, startedServices map[string]bool
 			fmt.Println()
 
 		case "vector":
-			fmt.Println("✓ Vector Database (pgvector)")
-			fmt.Printf("  URL: postgresql://localcloud:localcloud@localhost:%d/localcloud\n", cfg.Services.Database.Port)
-			fmt.Println("  Try:")
-			fmt.Println(`    psql $DATABASE_URL -c "CREATE TABLE items (id serial, embedding vector(768))"`)
-			fmt.Println(`    psql $DATABASE_URL -c "SELECT * FROM items ORDER BY embedding <-> '[3,1,2]' LIMIT 5"`)
-			fmt.Println()
+			PrintPgVectorServiceInfo(cfg.Services.Database.Port)
 
 		case "cache":
 			fmt.Println("✓ Cache (Redis)")
@@ -288,6 +283,13 @@ func showStartedServicesInfo(cfg *config.Config, startedServices map[string]bool
 			fmt.Printf("  Console: http://localhost:%d\n", cfg.Services.Storage.Console)
 			fmt.Println("  Credentials: see ~/.localcloud/minio-credentials")
 			fmt.Println()
+		}
+	}
+	if cfg.Services.Database.Type == "postgres" && startedServices["postgres"] {
+		// Check if pgvector extension is enabled
+		if !componentFound("vector", enabledComponents) {
+			// Show regular PostgreSQL info or pgvector info based on extensions
+			PrintPostgreSQLServiceInfo(cfg.Services.Database.Port, cfg.Services.Database.Extensions)
 		}
 	}
 }
@@ -329,4 +331,14 @@ func startTunnel(cfg *config.Config) error {
 
 	printSuccess(fmt.Sprintf("Tunnel connected: %s", url))
 	return nil
+}
+
+// Helper function to check if component exists (add this at the end of the file)
+func componentFound(id string, components []string) bool {
+	for _, comp := range components {
+		if comp == id {
+			return true
+		}
+	}
+	return false
 }

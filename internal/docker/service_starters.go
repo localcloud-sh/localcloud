@@ -273,13 +273,32 @@ func NewDatabaseServiceStarter(m *Manager) ServiceStarter {
 }
 
 // Start starts the database service
+// Start starts the database service
 func (s *DatabaseServiceStarter) Start() error {
 	if s.manager.config.Services.Database.Type == "" {
 		return nil // Database not configured
 	}
 
+	// Check if pgvector extension is requested
+	hasPgVector := false
+	for _, ext := range s.manager.config.Services.Database.Extensions {
+		if ext == "pgvector" || ext == "vector" {
+			hasPgVector = true
+			break
+		}
+	}
+
+	// Select appropriate image
+	var image string
+	if hasPgVector {
+		// Use pgvector-enabled PostgreSQL image
+		image = fmt.Sprintf("pgvector/pgvector:pg%s", s.manager.config.Services.Database.Version)
+	} else {
+		// Use standard PostgreSQL image
+		image = fmt.Sprintf("postgres:%s-alpine", s.manager.config.Services.Database.Version)
+	}
+
 	// Check and pull image
-	image := fmt.Sprintf("postgres:%s-alpine", s.manager.config.Services.Database.Version)
 	if err := s.ensureImage(image); err != nil {
 		return err
 	}
@@ -319,6 +338,11 @@ func (s *DatabaseServiceStarter) Start() error {
 			"com.localcloud.project": s.manager.config.Project.Name,
 			"com.localcloud.service": "database",
 		},
+	}
+
+	// Add pgvector-specific label if enabled
+	if hasPgVector {
+		config.Labels["com.localcloud.pgvector"] = "enabled"
 	}
 
 	// Create and start container

@@ -64,6 +64,13 @@ var ComponentRegistry = map[ComponentType]ServiceConfig{
 		Volumes: []string{
 			"pgvector_data:/var/lib/postgresql/data",
 		},
+		HealthCheck: &HealthCheck{
+			Type:     "cmd",
+			Endpoint: "pg_isready -U localcloud",
+			Interval: 10 * time.Second,
+			Timeout:  5 * time.Second,
+			Retries:  5,
+		},
 	},
 	ComponentStorage: {
 		Name:          "minio",
@@ -458,4 +465,21 @@ func (sm *ServiceManager) WithCustomConfig(name string, config ServiceConfig) er
 
 	config.Name = name
 	return sm.StartService(name, config)
+}
+
+// IsVectorEnabled checks if service is vector-enabled
+func (sm *ServiceManager) IsVectorEnabled(serviceName string) bool {
+	// Check if it's pgvector service
+	if serviceName == "pgvector" || serviceName == "vector-db" {
+		return true
+	}
+
+	// Check if PostgreSQL has pgvector extension
+	if serviceName == "postgres" || serviceName == "database" {
+		// This would need to check the actual config
+		// For now, return false as base postgres doesn't have pgvector
+		return false
+	}
+
+	return false
 }

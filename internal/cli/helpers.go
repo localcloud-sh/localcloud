@@ -346,3 +346,91 @@ func PrintRedisQueueInfo(port int) {
 	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d ZADD priority 1 'urgent-task'", port)))
 	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d ZRANGE priority 0 -1", port)))
 }
+
+// internal/cli/helpers.go
+// ADD these functions to your existing helpers.go file
+
+// PrintPgVectorServiceInfo prints PostgreSQL with pgvector service information
+func PrintPgVectorServiceInfo(port int) {
+	green := color.New(color.FgGreen).SprintFunc()
+	bold := color.New(color.Bold).SprintFunc()
+	cyan := color.New(color.FgCyan).SprintFunc()
+	yellow := color.New(color.FgYellow).SprintFunc()
+
+	fmt.Printf("\n%s %s\n", green("✓"), bold("PostgreSQL with pgvector"))
+	fmt.Printf("  URL: %s\n", cyan(fmt.Sprintf("postgresql://localcloud:localcloud@localhost:%d/localcloud", port)))
+	fmt.Println("  Vector search ready!")
+	fmt.Println()
+
+	fmt.Printf("  %s\n", yellow("pgvector Examples:"))
+
+	// Connection example
+	fmt.Printf("    %s\n", cyan("# Connect to database"))
+	fmt.Printf("    %s\n", cyan(fmt.Sprintf("psql postgresql://localcloud:localcloud@localhost:%d/localcloud", port)))
+	fmt.Println()
+
+	// Create table example
+	fmt.Printf("    %s\n", cyan("# Create a table with vector column"))
+	fmt.Printf("    %s\n", cyan("CREATE TABLE items ("))
+	fmt.Printf("    %s\n", cyan("  id SERIAL PRIMARY KEY,"))
+	fmt.Printf("    %s\n", cyan("  content TEXT,"))
+	fmt.Printf("    %s\n", cyan("  embedding vector(1536)"))
+	fmt.Printf("    %s\n", cyan(");"))
+	fmt.Println()
+
+	// Insert example
+	fmt.Printf("    %s\n", cyan("# Insert vector data"))
+	fmt.Printf("    %s\n", cyan("INSERT INTO items (content, embedding)"))
+	fmt.Printf("    %s\n", cyan("VALUES ('Sample text', '[0.1, 0.2, 0.3, ...]');"))
+	fmt.Println()
+
+	// Search example
+	fmt.Printf("    %s\n", cyan("# Find similar vectors (cosine similarity)"))
+	fmt.Printf("    %s\n", cyan("SELECT content, embedding <=> '[0.1, 0.2, 0.3, ...]' AS distance"))
+	fmt.Printf("    %s\n", cyan("FROM items"))
+	fmt.Printf("    %s\n", cyan("ORDER BY distance"))
+	fmt.Printf("    %s\n", cyan("LIMIT 5;"))
+	fmt.Println()
+
+	// Index example
+	fmt.Printf("    %s\n", cyan("# Create index for faster searches"))
+	fmt.Printf("    %s\n", cyan("CREATE INDEX ON items"))
+	fmt.Printf("    %s\n", cyan("USING ivfflat (embedding vector_cosine_ops)"))
+	fmt.Printf("    %s\n", cyan("WITH (lists = 100);"))
+	fmt.Println()
+
+	fmt.Printf("  %s\n", yellow("Integration with Ollama embeddings:"))
+	fmt.Printf("    %s\n", cyan("# Get embedding from Ollama"))
+	fmt.Printf("    %s\n", cyan("curl http://localhost:11434/api/embeddings \\"))
+	fmt.Printf("    %s\n", cyan("  -d '{\"model\":\"nomic-embed-text\",\"prompt\":\"Your text here\"}'"))
+	fmt.Println()
+
+	fmt.Printf("  %s For more: %s\n", yellow("📚"), cyan("https://github.com/pgvector/pgvector"))
+}
+
+// PrintPostgreSQLServiceInfo prints standard PostgreSQL service information
+func PrintPostgreSQLServiceInfo(port int, extensions []string) {
+	green := color.New(color.FgGreen).SprintFunc()
+	bold := color.New(color.Bold).SprintFunc()
+	cyan := color.New(color.FgCyan).SprintFunc()
+
+	// Check if pgvector is enabled
+	hasPgVector := false
+	for _, ext := range extensions {
+		if ext == "pgvector" || ext == "vector" {
+			hasPgVector = true
+			break
+		}
+	}
+
+	if hasPgVector {
+		PrintPgVectorServiceInfo(port)
+		return
+	}
+
+	// Standard PostgreSQL info
+	fmt.Printf("\n%s %s\n", green("✓"), bold("PostgreSQL"))
+	fmt.Printf("  URL: %s\n", cyan(fmt.Sprintf("postgresql://localcloud:localcloud@localhost:%d/localcloud", port)))
+	fmt.Println("  Try:")
+	fmt.Printf("    %s\n", cyan(fmt.Sprintf("psql postgresql://localcloud:localcloud@localhost:%d/localcloud", port)))
+}
