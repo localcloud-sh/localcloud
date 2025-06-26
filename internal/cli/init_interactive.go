@@ -4,6 +4,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/spf13/viper"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -583,15 +584,16 @@ func createProjectStructure(projectName string) error {
 
 // saveInteractiveConfig saves configuration to file
 func saveInteractiveConfig(cfg *config.Config, projectName string) error {
-	// Initialize viper
-	v := config.GetViper()
+	// Create new viper instance for clean config
+	v := viper.New()
+	v.SetConfigType("yaml")
 
 	// Set all configuration values
 	v.Set("version", cfg.Version)
 	v.Set("project.name", cfg.Project.Name)
 	v.Set("project.type", cfg.Project.Type)
 
-	// Set service configurations
+	// Set service configurations only if they're configured
 	if cfg.Services.AI.Port > 0 {
 		v.Set("services.ai.port", cfg.Services.AI.Port)
 		v.Set("services.ai.models", cfg.Services.AI.Models)
@@ -633,6 +635,17 @@ func saveInteractiveConfig(cfg *config.Config, projectName string) error {
 		v.Set("services.whisper.port", cfg.Services.Whisper.Port)
 		v.Set("services.whisper.model", cfg.Services.Whisper.Model)
 	}
+
+	// Set resource configurations
+	v.Set("resources.memory_limit", cfg.Resources.MemoryLimit)
+	v.Set("resources.cpu_limit", cfg.Resources.CPULimit)
+
+	// Set connectivity configurations
+	v.Set("connectivity.enabled", cfg.Connectivity.Enabled)
+	v.Set("connectivity.tunnel.provider", cfg.Connectivity.Tunnel.Provider)
+
+	// Set CLI configurations
+	v.Set("cli.show_service_info", cfg.CLI.ShowServiceInfo)
 
 	// Save configuration
 	configPath := filepath.Join(".localcloud", "config.yaml")

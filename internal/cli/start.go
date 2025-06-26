@@ -41,6 +41,8 @@ func init() {
 	startCmd.Flags().BoolVar(&showInfo, "info", true, "Show connection info after start")
 }
 
+// internal/cli/start.go
+
 func runStart(cmd *cobra.Command, args []string) error {
 	if verbose {
 		fmt.Println("DEBUG: runStart called")
@@ -62,20 +64,42 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Get enabled components from config
 	enabledComponents := getEnabledComponents(cfg)
 	if len(enabledComponents) == 0 {
+		// No components configured - launch interactive wizard
 		fmt.Println(warningColor("No components configured in this project."))
-		fmt.Println("\nThis project was created without any components.")
-		fmt.Println("To add components, run:")
-		fmt.Println("  • lc component add <component-id>")
-		fmt.Println("  • Or re-run: lc init --interactive")
-		fmt.Println("\nAvailable components:")
-		fmt.Println("  • llm        - Large language models")
-		fmt.Println("  • embedding  - Text embeddings")
-		fmt.Println("  • vector     - Vector database (pgvector)")
-		fmt.Println("  • cache      - Redis cache")
-		fmt.Println("  • queue      - Redis queue")
-		fmt.Println("  • storage    - Object storage (MinIO)")
-		fmt.Println("  • stt        - Speech-to-text (Whisper)")
-		return nil
+		fmt.Println("\n" + infoColor("Launching interactive setup wizard..."))
+		fmt.Println()
+
+		// Get project name from config or use default
+		projectName := cfg.Project.Name
+		if projectName == "" {
+			projectName = "my-project"
+		}
+
+		// Run interactive wizard
+		if err := RunInteractiveInit(projectName); err != nil {
+			return fmt.Errorf("setup wizard failed: %w", err)
+		}
+
+		// Reload config after wizard
+		if err := config.Init(configFile); err != nil {
+			return fmt.Errorf("failed to reload configuration: %w", err)
+		}
+
+		// Get the new config
+		cfg = config.Get()
+		if cfg == nil {
+			return fmt.Errorf("failed to load configuration after setup")
+		}
+
+		// Check if components were added
+		enabledComponents = getEnabledComponents(cfg)
+		if len(enabledComponents) == 0 {
+			// User cancelled or didn't select any components
+			fmt.Println("\nNo components were configured. Exiting.")
+			return nil
+		}
+
+		// Continue with normal start flow
 	}
 
 	// Show what components are configured
