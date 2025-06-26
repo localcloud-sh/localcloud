@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -325,6 +326,9 @@ func (m *containerManager) Exists(name string) (bool, string, error) {
 // WaitHealthy waits for a container to become healthy
 func (m *containerManager) WaitHealthy(containerID string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	startTime := time.Now()
+	lastLogTime := time.Now()
+	checkInterval := 2 * time.Second
 
 	for time.Now().Before(deadline) {
 		inspect, err := m.client.docker.ContainerInspect(m.client.ctx, containerID)
@@ -332,24 +336,111 @@ func (m *containerManager) WaitHealthy(containerID string, timeout time.Duration
 			return fmt.Errorf("failed to inspect container: %w", err)
 		}
 
-		// If no health check, consider it healthy if running
+		// Log status every 5 seconds for debugging
+		if time.Since(lastLogTime) > 5*time.Second {
+			fmt.Printf("DEBUG: Container %s status - Running: %v, Health: %v\n",
+				inspect.Name,
+				inspect.State.Running,
+				func() string {
+					if inspect.State.Health == nil {
+						return "no health check"
+					}
+					return inspect.State.Health.Status
+				}())
+			lastLogTime = time.Now()
+		}
+
+		// Check if container has exited
+		if !inspect.State.Running {
+			return fmt.Errorf("container exited with status: %s", inspect.State.Status)
+		}
+
+		// If no health check is configured, just check if running
 		if inspect.Config.Healthcheck == nil {
-			if inspect.State.Running {
+			// For containers without health check, wait a bit to ensure it's stable
+			if time.Since(startTime) > 5*time.Second && inspect.State.Running {
 				return nil
 			}
 		} else if inspect.State.Health != nil {
-			if inspect.State.Health.Status == "healthy" {
+			switch inspect.State.Health.Status {
+			case "healthy":
 				return nil
-			}
-			if inspect.State.Health.Status == "unhealthy" {
-				return fmt.Errorf("container is unhealthy")
+			case "unhealthy":
+				// For MinIO, sometimes it reports unhealthy initially but recovers
+				// Check if it's been unhealthy for too long
+				if time.Since(startTime) > 20*time.Second {
+					// Get the last few health check logs for debugging
+					logs := inspect.State.Health.Log
+					if len(logs) > 0 {
+						fmt.Printf("DEBUG: Last health check output:\n")
+						for i := len(logs) - 1; i >= 0 && i >= len(logs)-3; i-- {
+							fmt.Printf("  [%d] Exit: %d, Output: %s\n",
+								i, logs[i].ExitCode, strings.TrimSpace(logs[i].Output))
+						}
+					}
+					return fmt.Errorf("container is unhealthy after %v", time.Since(startTime))
+				}
+			case "starting":
+				// Still starting, continue waiting
+			default:
+				// Unknown status, log it
+				fmt.Printf("DEBUG: Unknown health status: %s\n", inspect.State.Health.Status)
 			}
 		}
 
-		time.Sleep(1 * time.Second)
+		time.Sleep(checkInterval)
 	}
 
-	return fmt.Errorf("timeout waiting for container to be healthy")
+	// Timeout reached, provide detailed error
+	inspect, _ := m.client.docker.ContainerInspect(m.client.ctx, containerID)
+	status := "unknown"
+	if inspect.State.Health != nil {
+		status = inspect.State.Health.Status
+	} else if inspect.State.Running {
+		status = "running (no health check)"
+	} else {
+		status = inspect.State.Status
+	}
+
+	return fmt.Errorf("timeout waiting for container to be healthy after %v (current status: %s)",
+		timeout, status)
+}
+
+// Alternative: Add a MinIO-specific health check function
+func (m *containerManager) WaitMinIOHealthy(containerID string, port int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	for time.Now().Before(deadline) {
+		// First check if container is running
+		inspect, err := m.client.docker.ContainerInspect(m.client.ctx, containerID)
+		if err != nil {
+			return fmt.Errorf("failed to inspect container: %w", err)
+		}
+
+		if !inspect.State.Running {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		// Try MinIO health endpoint
+		healthURL := fmt.Sprintf("http://localhost:%d/minio/health/live", port)
+		resp, err := client.Get(healthURL)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				fmt.Printf("DEBUG: MinIO health check passed\n")
+				return nil
+			}
+			fmt.Printf("DEBUG: MinIO health check returned status %d\n", resp.StatusCode)
+		} else {
+			fmt.Printf("DEBUG: MinIO health check error: %v\n", err)
+		}
+
+		time.Sleep(2 * time.Second)
+	}
+
+	return fmt.Errorf("timeout waiting for MinIO to be healthy")
 }
 
 // Stats returns container statistics

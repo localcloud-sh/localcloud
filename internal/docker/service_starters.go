@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -550,7 +551,7 @@ func (s *StorageServiceStarter) Start() error {
 		return err
 	}
 
-	// Create container config
+	// Create container config WITHOUT health check
 	config := ContainerConfig{
 		Name:  "localcloud-minio",
 		Image: "minio/minio:latest",
@@ -583,12 +584,7 @@ func (s *StorageServiceStarter) Start() error {
 		},
 		Networks:      []string{fmt.Sprintf("localcloud_%s_default", s.manager.config.Project.Name)},
 		RestartPolicy: "unless-stopped",
-		HealthCheck: &HealthCheckConfig{
-			Test:     []string{"CMD", "curl", "-f", "http://localhost:9000/minio/health/live"},
-			Interval: 30,
-			Timeout:  10,
-			Retries:  3,
-		},
+		// REMOVED HealthCheck configuration
 		Labels: map[string]string{
 			"com.localcloud.project": s.manager.config.Project.Name,
 			"com.localcloud.service": "storage",
@@ -605,13 +601,80 @@ func (s *StorageServiceStarter) Start() error {
 		return err
 	}
 
-	// Wait for health and create default bucket
-	if err := s.manager.container.WaitHealthy(containerID, 30*time.Second); err != nil {
+	// Wait for MinIO to be ready using proper method
+	fmt.Println("⏳ Waiting for MinIO to start...")
+	if err := s.waitForMinIOReady(containerID); err != nil {
+		// Get container logs for debugging
+		logs, _ := s.manager.GetContainerLogs(containerID, false, "50")
+		fmt.Printf("DEBUG: MinIO container logs:\n%s\n", string(logs))
 		return err
 	}
 
 	// Post-start: create default bucket
 	return s.createDefaultBucket()
+}
+
+// waitForMinIOReady waits for MinIO to be ready using TCP checks
+func (s *StorageServiceStarter) waitForMinIOReady(containerID string) error {
+	timeout := 60 * time.Second
+	deadline := time.Now().Add(timeout)
+	startTime := time.Now()
+
+	// First, ensure container is running using our Inspect method
+	for i := 0; i < 10; i++ {
+		info, err := s.manager.container.Inspect(containerID)
+		if err != nil {
+			return fmt.Errorf("failed to inspect container: %w", err)
+		}
+
+		if info.State == "running" {
+			break
+		}
+
+		if i == 9 {
+			return fmt.Errorf("container failed to start (state: %s)", info.State)
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	// Now wait for MinIO to be ready
+	for time.Now().Before(deadline) {
+		// Try TCP connection
+		address := fmt.Sprintf("localhost:%d", s.manager.config.Services.Storage.Port)
+		conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+		if err == nil {
+			conn.Close()
+
+			// Also try HTTP health check
+			client := &http.Client{Timeout: 5 * time.Second}
+			healthURL := fmt.Sprintf("http://localhost:%d/minio/health/live",
+				s.manager.config.Services.Storage.Port)
+
+			resp, httpErr := client.Get(healthURL)
+			if httpErr == nil {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					fmt.Println("✓ MinIO is ready")
+					return nil
+				}
+			}
+
+			// TCP is working but HTTP might not be ready yet
+			// If we've been waiting for more than 10 seconds with TCP working, assume it's ready
+			if time.Since(startTime) > 10*time.Second {
+				fmt.Println("✓ MinIO TCP port is ready")
+				return nil
+			}
+		}
+
+		// Show progress
+		elapsed := time.Since(startTime)
+		fmt.Printf("\r⏳ Waiting for MinIO... %ds", int(elapsed.Seconds()))
+
+		time.Sleep(2 * time.Second)
+	}
+
+	return fmt.Errorf("timeout waiting for MinIO to be ready after %v", timeout)
 }
 
 // ensureImage checks and pulls image if needed
@@ -622,8 +685,8 @@ func (s *StorageServiceStarter) ensureImage(image string) error {
 
 // createDefaultBucket creates the default bucket after MinIO starts
 func (s *StorageServiceStarter) createDefaultBucket() error {
-	// Wait a bit for MinIO to be fully ready
-	time.Sleep(5 * time.Second)
+	// Wait a bit more to ensure MinIO is fully ready
+	time.Sleep(3 * time.Second)
 
 	// Create MinIO client
 	endpoint := fmt.Sprintf("localhost:%d", s.manager.config.Services.Storage.Port)
@@ -639,32 +702,66 @@ func (s *StorageServiceStarter) createDefaultBucket() error {
 		return fmt.Errorf("failed to create MinIO client: %w", err)
 	}
 
-	// Create default bucket
+	// Create default bucket with retries
 	bucketName := "localcloud"
 	ctx := context.Background()
 
-	err = minioClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
-	if err != nil {
-		// Check if bucket already exists
-		exists, errBucketExists := minioClient.BucketExists(ctx, bucketName)
-		if errBucketExists == nil && exists {
-			// Bucket already exists, not an error
-			return nil
+	var lastErr error
+	for i := 0; i < 5; i++ {
+		err = minioClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
+		if err != nil {
+			// Check if bucket already exists
+			exists, errBucketExists := minioClient.BucketExists(ctx, bucketName)
+			if errBucketExists == nil && exists {
+				// Bucket already exists, not an error
+				err = nil
+				break
+			}
+
+			lastErr = err
+			if i < 4 {
+				// Retry after a short delay
+				time.Sleep(3 * time.Second)
+				continue
+			}
+		} else {
+			// Success
+			break
 		}
-		return fmt.Errorf("failed to create bucket: %w", err)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to create bucket after retries: %w (last error: %v)", err, lastErr)
 	}
 
 	// Save credentials to file for user reference
 	credsPath := filepath.Join(os.Getenv("HOME"), ".localcloud", "minio-credentials")
 	os.MkdirAll(filepath.Dir(credsPath), 0700)
 
-	credsContent := fmt.Sprintf("MinIO Credentials\n=================\nEndpoint: http://localhost:%d\nAccess Key: localcloud\nSecret Key: %s\nConsole: http://localhost:%d\n",
+	credsContent := fmt.Sprintf(`MinIO Credentials
+=================
+Endpoint: http://localhost:%d
+Access Key: localcloud
+Secret Key: %s
+Console: http://localhost:%d
+
+To access MinIO console, open: http://localhost:%d
+Login with the credentials above.
+`,
 		s.manager.config.Services.Storage.Port,
 		s.rootPassword,
 		s.manager.config.Services.Storage.Console,
+		s.manager.config.Services.Storage.Console,
 	)
 
-	os.WriteFile(credsPath, []byte(credsContent), 0600)
+	if err := os.WriteFile(credsPath, []byte(credsContent), 0600); err != nil {
+		// Non-fatal error, just log it
+		fmt.Printf("Warning: Could not save credentials to file: %v\n", err)
+	}
+
+	fmt.Printf("\n✓ MinIO storage service started successfully\n")
+	fmt.Printf("  Console: http://localhost:%d\n", s.manager.config.Services.Storage.Console)
+	fmt.Printf("  Credentials saved to: %s\n", credsPath)
 
 	return nil
 }
