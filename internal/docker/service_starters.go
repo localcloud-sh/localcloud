@@ -274,7 +274,6 @@ func NewDatabaseServiceStarter(m *Manager) ServiceStarter {
 }
 
 // Start starts the database service
-// Start starts the database service
 func (s *DatabaseServiceStarter) Start() error {
 	if s.manager.config.Services.Database.Type == "" {
 		return nil // Database not configured
@@ -387,14 +386,25 @@ func (s *CacheServiceStarter) Start() error {
 		return err
 	}
 
+	// Set default values if not configured
+	maxMemory := s.manager.config.Services.Cache.MaxMemory
+	if maxMemory == "" {
+		maxMemory = "512mb" // Default value
+	}
+
+	maxMemoryPolicy := s.manager.config.Services.Cache.MaxMemoryPolicy
+	if maxMemoryPolicy == "" {
+		maxMemoryPolicy = "allkeys-lru" // Default policy
+	}
+
 	// Create container config
 	config := ContainerConfig{
 		Name:  "localcloud-redis",
 		Image: "redis:7-alpine",
 		Command: []string{
 			"redis-server",
-			"--maxmemory", s.manager.config.Services.Cache.MaxMemory,
-			"--maxmemory-policy", "allkeys-lru",
+			"--maxmemory", maxMemory,
+			"--maxmemory-policy", maxMemoryPolicy,
 		},
 		Ports: []PortBinding{
 			{
@@ -459,18 +469,34 @@ func (s *QueueServiceStarter) Start() error {
 		return err
 	}
 
+	// Set default values if not configured
+	maxMemory := s.manager.config.Services.Queue.MaxMemory
+	if maxMemory == "" {
+		maxMemory = "1gb" // Default for queue
+	}
+
+	maxMemoryPolicy := s.manager.config.Services.Queue.MaxMemoryPolicy
+	if maxMemoryPolicy == "" {
+		maxMemoryPolicy = "noeviction" // Default for queue
+	}
+
+	appendFsync := s.manager.config.Services.Queue.AppendFsync
+	if appendFsync == "" {
+		appendFsync = "everysec" // Default fsync policy
+	}
+
 	// Build Redis command for queue
 	redisCmd := []string{
 		"redis-server",
-		"--maxmemory", s.manager.config.Services.Queue.MaxMemory,
-		"--maxmemory-policy", s.manager.config.Services.Queue.MaxMemoryPolicy,
+		"--maxmemory", maxMemory,
+		"--maxmemory-policy", maxMemoryPolicy,
 	}
 
 	// Add persistence options if enabled
 	if s.manager.config.Services.Queue.Persistence {
 		redisCmd = append(redisCmd,
 			"--appendonly", "yes",
-			"--appendfsync", s.manager.config.Services.Queue.AppendFsync,
+			"--appendfsync", appendFsync,
 			// RDB snapshots for additional safety
 			"--save", "900", "1", // After 900 sec (15 min) if at least 1 key changed
 			"--save", "300", "10", // After 300 sec (5 min) if at least 10 keys changed

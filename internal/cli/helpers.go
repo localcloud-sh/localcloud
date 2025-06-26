@@ -282,71 +282,30 @@ func parseMemoryLimit(limit string) int64 {
 
 }
 
-// PrintRedisServiceInfo prints Redis service information with queue examples
-func PrintRedisServiceInfo(port int) {
-	green := color.New(color.FgGreen).SprintFunc()
-	bold := color.New(color.Bold).SprintFunc()
-	cyan := color.New(color.FgCyan).SprintFunc()
-
-	fmt.Printf("\n%s %s\n", green("✓"), bold("Redis (Cache + Queue)"))
-	fmt.Printf("  URL: %s\n", cyan(fmt.Sprintf("redis://localhost:%d", port)))
-	fmt.Println("  Try:")
-	fmt.Printf("    %s\n", cyan("# Test connection"))
-	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d ping", port)))
-	fmt.Println()
-	fmt.Printf("    %s\n", cyan("# Simple queue operations"))
-	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d LPUSH jobs '{\"id\":\"123\",\"task\":\"process\"}'", port)))
-	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d BRPOP jobs 0", port)))
-	fmt.Println()
-	fmt.Printf("    %s\n", cyan("# Check queue length"))
-	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d LLEN jobs", port)))
-}
-
-// internal/cli/helpers.go
-// Add these functions to the existing helpers.go file
-
 func PrintRedisCacheInfo(port int) {
 	green := color.New(color.FgGreen).SprintFunc()
 	bold := color.New(color.Bold).SprintFunc()
 	cyan := color.New(color.FgCyan).SprintFunc()
-	yellow := color.New(color.FgYellow).SprintFunc()
 
-	fmt.Printf("\n%s %s\n", green("✓"), bold("Redis Cache"))
+	fmt.Printf("\n%s %s\n", green("✓"), bold("Cache (Redis)"))
 	fmt.Printf("  URL: %s\n", cyan(fmt.Sprintf("redis://localhost:%d", port)))
-	fmt.Printf("  %s\n", yellow("Optimized for: Temporary data, sessions"))
-	fmt.Printf("  %s\n", yellow("Persistence: Disabled (memory-only)"))
-	fmt.Println()
+	fmt.Printf("  Client libraries: %s\n", cyan("https://redis.io/docs/clients/"))
 	fmt.Println("  Try:")
-	fmt.Printf("    %s\n", cyan("# Test connection"))
 	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d ping", port)))
-	fmt.Println()
-	fmt.Printf("    %s\n", cyan("# Cache operations"))
-	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d SET user:123 '{\"name\":\"John\"}' EX 3600", port)))
-	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d GET user:123", port)))
-	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d TTL user:123", port)))
+	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d set key value", port)))
 }
 
-// PrintRedisQueueInfo prints Redis queue-specific information
 func PrintRedisQueueInfo(port int) {
 	green := color.New(color.FgGreen).SprintFunc()
 	bold := color.New(color.Bold).SprintFunc()
 	cyan := color.New(color.FgCyan).SprintFunc()
-	yellow := color.New(color.FgYellow).SprintFunc()
 
-	fmt.Printf("\n%s %s\n", green("✓"), bold("Redis Queue"))
+	fmt.Printf("\n%s %s\n", green("✓"), bold("Queue (Redis)"))
 	fmt.Printf("  URL: %s\n", cyan(fmt.Sprintf("redis://localhost:%d", port)))
-	fmt.Printf("  %s\n", yellow("Optimized for: Job queues, persistent data"))
-	fmt.Printf("  %s\n", yellow("Persistence: Enabled (survives restarts)"))
-	fmt.Println()
+	fmt.Printf("  Client libraries: %s\n", cyan("https://redis.io/docs/clients/"))
 	fmt.Println("  Try:")
-	fmt.Printf("    %s\n", cyan("# Queue operations"))
-	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d LPUSH jobs '{\"id\":\"123\",\"task\":\"process\"}'", port)))
+	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d LPUSH jobs '{\"task\":\"process\"}'", port)))
 	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d BRPOP jobs 0", port)))
-	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d LLEN jobs", port)))
-	fmt.Println()
-	fmt.Printf("    %s\n", cyan("# Priority queue"))
-	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d ZADD priority 1 'urgent-task'", port)))
-	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d ZRANGE priority 0 -1", port)))
 }
 
 // internal/cli/helpers.go - Updated PrintPgVectorServiceInfo

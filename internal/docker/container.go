@@ -443,6 +443,9 @@ func (m *containerManager) WaitMinIOHealthy(containerID string, port int, timeou
 	return fmt.Errorf("timeout waiting for MinIO to be healthy")
 }
 
+// internal/docker/container.go
+// Stats returns container statistics - FIXED VERSION
+
 // Stats returns container statistics
 func (m *containerManager) Stats(containerID string) (ContainerStats, error) {
 	stats, err := m.client.docker.ContainerStats(m.client.ctx, containerID, false)
@@ -472,15 +475,49 @@ func (m *containerManager) Stats(containerID string) (ContainerStats, error) {
 		memPercent = (float64(memUsage) / float64(memLimit)) * 100.0
 	}
 
+	// Network stats - safely check if network exists
+	var networkRx, networkTx uint64
+	if v.Networks != nil {
+		// Try different network interfaces
+		for _, netName := range []string{"eth0", "bridge", "host"} {
+			if netStats, ok := v.Networks[netName]; ok {
+				networkRx = netStats.RxBytes
+				networkTx = netStats.TxBytes
+				break
+			}
+		}
+		// If no specific interface found, use the first available
+		if networkRx == 0 && networkTx == 0 {
+			for _, netStats := range v.Networks {
+				networkRx = netStats.RxBytes
+				networkTx = netStats.TxBytes
+				break
+			}
+		}
+	}
+
+	// Block I/O stats - safely check if available
+	var blockRead, blockWrite uint64
+	if v.BlkioStats.IoServiceBytesRecursive != nil {
+		for _, ioStat := range v.BlkioStats.IoServiceBytesRecursive {
+			switch strings.ToLower(ioStat.Op) {
+			case "read":
+				blockRead += ioStat.Value
+			case "write":
+				blockWrite += ioStat.Value
+			}
+		}
+	}
+
 	return ContainerStats{
 		CPUPercent:    cpuPercent,
 		MemoryUsage:   memUsage,
 		MemoryLimit:   memLimit,
 		MemoryPercent: memPercent,
-		NetworkRx:     v.Networks["eth0"].RxBytes,
-		NetworkTx:     v.Networks["eth0"].TxBytes,
-		BlockRead:     v.BlkioStats.IoServiceBytesRecursive[0].Value,
-		BlockWrite:    v.BlkioStats.IoServiceBytesRecursive[1].Value,
+		NetworkRx:     networkRx,
+		NetworkTx:     networkTx,
+		BlockRead:     blockRead,
+		BlockWrite:    blockWrite,
 	}, nil
 }
 

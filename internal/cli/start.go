@@ -271,20 +271,10 @@ func showStartedServicesInfo(cfg *config.Config, startedServices map[string]bool
 			PrintPgVectorServiceInfo(cfg.Services.Database.Port)
 
 		case "cache":
-			fmt.Println("✓ Cache (Redis)")
-			fmt.Printf("  URL: redis://localhost:%d\n", cfg.Services.Cache.Port)
-			fmt.Println("  Try:")
-			fmt.Printf("    redis-cli -p %d ping\n", cfg.Services.Cache.Port)
-			fmt.Printf("    redis-cli -p %d set key value\n", cfg.Services.Cache.Port)
-			fmt.Println()
+			PrintRedisCacheInfo(cfg.Services.Cache.Port)
 
 		case "queue":
-			fmt.Println("✓ Queue (Redis)")
-			fmt.Printf("  URL: redis://localhost:%d\n", cfg.Services.Queue.Port)
-			fmt.Println("  Try:")
-			fmt.Printf("    redis-cli -p %d LPUSH jobs '{\"task\":\"process\"}'\n", cfg.Services.Queue.Port)
-			fmt.Printf("    redis-cli -p %d BRPOP jobs 0\n", cfg.Services.Queue.Port)
-			fmt.Println()
+			PrintRedisQueueInfo(cfg.Services.Queue.Port)
 
 		case "storage":
 			fmt.Println("✓ Object Storage (MinIO)")
