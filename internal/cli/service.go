@@ -5,15 +5,24 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"strings"
-	"text/tabwriter"
-
+	"github.com/briandowns/spinner"
 	"github.com/localcloud/localcloud/internal/config"
 	"github.com/localcloud/localcloud/internal/docker"
 	"github.com/localcloud/localcloud/internal/services"
 	"github.com/localcloud/localcloud/internal/templates"
 	"github.com/spf13/cobra"
+	"os"
+	"strings"
+	"text/tabwriter"
+	"time"
+)
+
+var (
+	servicePort   int
+	serviceEnv    []string
+	serviceDetach bool
+	serviceFollow bool
+	// Removed serviceVerbose as it conflicts with global verbose
 )
 
 // Helper functions
@@ -47,18 +56,36 @@ var serviceStartCmd = &cobra.Command{
 	Use:   "start [service]",
 	Short: "Start a specific service",
 	Long: `Start a specific LocalCloud service dynamically.
+    
+Supported services:
+  Core Services:
+    • ai, llm, ollama      - AI/LLM service
+    • postgres, db, vector-db         - PostgreSQL database
+    • cache, redis-cache   - Redis cache
+    • queue, redis-queue   - Redis queue
+    • minio, storage, s3   - MinIO object storage
 
-Available services:
-  - whisper    Speech-to-Text service
-  - qdrant     Vector database
-  - minio      S3-compatible object storage
-  - localllama Local LLaMA service
+  AI Components:
+    • whisper, stt, speech-to-text    - Speech recognition
+    • tts, text-to-speech, piper      - Text to speech
+    • stable-diffusion, image-gen     - Image generation
+    • qdrant, vector, vector-db       - Vector database
 
 Examples:
   lc service start whisper
+  lc service start tts --port 10201
   lc service start qdrant`,
 	Args: cobra.ExactArgs(1),
 	RunE: runServiceStart,
+}
+
+// serviceRestartCmd restarts a specific service
+var serviceRestartCmd = &cobra.Command{
+	Use:   "restart [service]",
+	Short: "Restart a specific service",
+	Long:  `Restart a running LocalCloud service.`,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runServiceRestart,
 }
 
 // serviceStopCmd stops a specific service
@@ -101,12 +128,20 @@ func init() {
 	serviceCmd.AddCommand(serviceStopCmd)
 	serviceCmd.AddCommand(serviceStatusCmd)
 	serviceCmd.AddCommand(serviceURLCmd)
+	serviceCmd.AddCommand(serviceRestartCmd)
 
 	// Add flags
 	servicesCmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
 	servicesCmd.Flags().BoolVar(&detailed, "detailed", false, "Show detailed information including service types")
-	servicesCmd.Flags().BoolVarP(&detailed, "d", "d", false, "Show detailed information (shorthand)")
+	// Removed duplicate -d flag definition
 	serviceURLCmd.Flags().BoolVar(&urlOnly, "url", true, "Output URL only")
+
+	// Service start flags
+	serviceStartCmd.Flags().IntVar(&servicePort, "port", 0, "Override default port")
+	serviceStartCmd.Flags().StringSliceVarP(&serviceEnv, "env", "e", []string{}, "Set environment variables")
+	serviceStartCmd.Flags().BoolVar(&serviceDetach, "detach", true, "Run in background") // Removed -d shorthand
+	serviceStartCmd.Flags().BoolVarP(&serviceFollow, "follow", "f", false, "Follow service logs")
+	// Removed verbose flag as it conflicts with global verbose
 
 	// Add shorthand commands at root level for convenience
 	rootCmd.AddCommand(&cobra.Command{
@@ -285,44 +320,92 @@ func hasExtension(cfg *config.Config, extension string) bool {
 func runServiceStart(cmd *cobra.Command, args []string) error {
 	serviceName := args[0]
 
-	// Check if we're in a LocalCloud project
 	if !isLocalCloudProject() {
 		return fmt.Errorf("not in a LocalCloud project directory")
 	}
 
-	// Load configuration
 	cfg, err := loadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Create managers
+	projectName := cfg.Project.Name
+	if projectName == "" {
+		projectName = "default"
+	}
+
 	ctx := context.Background()
 	dockerManager, err := docker.NewManager(ctx, cfg)
 	if err != nil {
+		if strings.Contains(err.Error(), "Docker daemon not running") {
+			return fmt.Errorf("Docker is not running. Please start Docker Desktop")
+		}
 		return fmt.Errorf("failed to create Docker manager: %w", err)
 	}
 
 	portManager := templates.NewPortManager()
-	serviceManager := services.NewServiceManager(cfg.Project.Name, dockerManager, portManager)
+	serviceManager := services.NewServiceManager(projectName, dockerManager, portManager)
 
-	// Get service configuration
-	serviceConfig := getServiceConfig(serviceName)
-	if serviceConfig == nil {
-		return fmt.Errorf("unknown service: %s", serviceName)
+	// Parse component name to get service config
+	normalizedName, componentConfig := serviceManager.ParseComponentName(serviceName)
+
+	var serviceConfig services.ServiceConfig
+	if componentConfig != nil {
+		serviceConfig = *componentConfig
+	} else {
+		// Fallback to legacy getServiceConfig
+		legacyConfig := getServiceConfig(serviceName)
+		if legacyConfig != nil {
+			serviceConfig = *legacyConfig
+		} else {
+			return fmt.Errorf("unknown service or component: %s", serviceName)
+		}
 	}
 
-	fmt.Printf("Starting %s service...\n", serviceName)
+	// Override port if specified
+	if servicePort > 0 {
+		serviceConfig.PreferredPort = servicePort
+	}
+
+	// Add custom environment variables
+	if len(serviceEnv) > 0 {
+		if serviceConfig.Environment == nil {
+			serviceConfig.Environment = make(map[string]string)
+		}
+		for _, env := range serviceEnv {
+			parts := strings.SplitN(env, "=", 2)
+			if len(parts) == 2 {
+				serviceConfig.Environment[parts[0]] = parts[1]
+			}
+		}
+	}
+
+	// Show starting message with spinner
+	var spin *spinner.Spinner
+	if !verbose && !serviceFollow { // Changed from serviceVerbose to verbose
+		spin = spinner.New(spinner.CharSets[14], 100*time.Millisecond)
+		spin.Suffix = fmt.Sprintf(" Starting %s...", serviceName)
+		spin.Start()
+	} else {
+		fmt.Printf("Starting %s service...\n", serviceName)
+	}
 
 	// Start the service
-	if err := serviceManager.StartService(serviceName, *serviceConfig); err != nil {
-		return fmt.Errorf("failed to start %s: %w", serviceName, err)
+	err = serviceManager.StartService(serviceName, serviceConfig)
+
+	if spin != nil {
+		spin.Stop()
+	}
+
+	if err != nil {
+		printError(fmt.Sprintf("Failed to start %s: %v", serviceName, err))
+		return err
 	}
 
 	// Get service info
-	service, err := serviceManager.GetServiceStatus(serviceName)
+	service, err := serviceManager.GetServiceStatus(normalizedName)
 	if err != nil {
-		return err
+		service, _ = serviceManager.GetServiceStatus(serviceName)
 	}
 
 	fmt.Printf("\n✓ %s started successfully!\n", strings.Title(serviceName))
@@ -330,123 +413,6 @@ func runServiceStart(cmd *cobra.Command, args []string) error {
 
 	// Show service-specific examples
 	showServiceExamples(serviceName, service.Port)
-
-	return nil
-}
-
-func runServiceStop(cmd *cobra.Command, args []string) error {
-	serviceName := args[0]
-
-	// Check if we're in a LocalCloud project
-	if !isLocalCloudProject() {
-		return fmt.Errorf("not in a LocalCloud project directory")
-	}
-
-	// Load configuration
-	cfg, err := loadConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	// Create managers
-	ctx := context.Background()
-	dockerManager, err := docker.NewManager(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create Docker manager: %w", err)
-	}
-
-	portManager := templates.NewPortManager()
-	serviceManager := services.NewServiceManager(cfg.Project.Name, dockerManager, portManager)
-
-	fmt.Printf("Stopping %s service...\n", serviceName)
-
-	// Stop the service
-	if err := serviceManager.StopService(serviceName); err != nil {
-		return fmt.Errorf("failed to stop %s: %w", serviceName, err)
-	}
-
-	fmt.Printf("✓ %s stopped\n", serviceName)
-	return nil
-}
-
-func runServiceStatus(cmd *cobra.Command, args []string) error {
-	serviceName := args[0]
-
-	// Check if we're in a LocalCloud project
-	if !isLocalCloudProject() {
-		return fmt.Errorf("not in a LocalCloud project directory")
-	}
-
-	// Load configuration
-	cfg, err := loadConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	// Create managers
-	ctx := context.Background()
-	dockerManager, err := docker.NewManager(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create Docker manager: %w", err)
-	}
-
-	portManager := templates.NewPortManager()
-	serviceManager := services.NewServiceManager(cfg.Project.Name, dockerManager, portManager)
-
-	// Get service status
-	service, err := serviceManager.GetServiceStatus(serviceName)
-	if err != nil {
-		return err
-	}
-
-	// Display status
-	fmt.Printf("Service: %s\n", service.Name)
-	fmt.Printf("Status: %s\n", service.Status)
-	fmt.Printf("Port: %d\n", service.Port)
-	fmt.Printf("URL: %s\n", service.URL)
-	if service.Health != "" {
-		fmt.Printf("Health: %s\n", service.Health)
-	}
-	fmt.Printf("Started: %s\n", service.StartedAt.Format("2006-01-02 15:04:05"))
-
-	return nil
-}
-
-func runServiceURL(cmd *cobra.Command, args []string) error {
-	serviceName := args[0]
-
-	// Check if we're in a LocalCloud project
-	if !isLocalCloudProject() {
-		return fmt.Errorf("not in a LocalCloud project directory")
-	}
-
-	// Load configuration
-	cfg, err := loadConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	// Create managers
-	ctx := context.Background()
-	dockerManager, err := docker.NewManager(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create Docker manager: %w", err)
-	}
-
-	portManager := templates.NewPortManager()
-	serviceManager := services.NewServiceManager(cfg.Project.Name, dockerManager, portManager)
-
-	// Get service URL
-	url, err := serviceManager.GetServiceURL(serviceName)
-	if err != nil {
-		return err
-	}
-
-	if urlOnly {
-		fmt.Println(url)
-	} else {
-		fmt.Printf("%s: %s\n", serviceName, url)
-	}
 
 	return nil
 }
@@ -591,6 +557,7 @@ func getServiceConfig(name string) *services.ServiceConfig {
 				"sd_models:/stable-diffusion-webui/models",
 			},
 		},
+
 		"localllama": {
 			Name:          "localllama",
 			Image:         "localcloud/localllama:latest",
@@ -676,4 +643,235 @@ func showServiceExamples(service string, port int) {
 		fmt.Println("      -H \"Content-Type: application/json\" \\")
 		fmt.Println("      -d '{\"prompt\": \"a beautiful landscape\", \"steps\": 20}'")
 	}
+}
+func runServiceStatus(cmd *cobra.Command, args []string) error {
+	serviceName := args[0]
+
+	if !isLocalCloudProject() {
+		return fmt.Errorf("not in a LocalCloud project directory")
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	projectName := cfg.Project.Name
+	if projectName == "" {
+		projectName = "default"
+	}
+
+	ctx := context.Background()
+	dockerManager, err := docker.NewManager(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create Docker manager: %w", err)
+	}
+
+	portManager := templates.NewPortManager()
+	serviceManager := services.NewServiceManager(projectName, dockerManager, portManager)
+
+	// Use resolveServiceName to find the actual service name
+	actualServiceName, err := resolveServiceName(serviceManager, serviceName)
+	if err != nil {
+		return err
+	}
+
+	// Get service status
+	service, err := serviceManager.GetServiceStatus(actualServiceName)
+	if err != nil {
+		return err
+	}
+
+	// Display status
+	fmt.Printf("Service: %s\n", service.Name)
+	fmt.Printf("Status: %s\n", service.Status)
+	fmt.Printf("Port: %d\n", service.Port)
+	fmt.Printf("URL: %s\n", service.URL)
+	if service.Health != "" {
+		fmt.Printf("Health: %s\n", service.Health)
+	}
+	fmt.Printf("Started: %s\n", service.StartedAt.Format("2006-01-02 15:04:05"))
+
+	return nil
+}
+
+func runServiceStop(cmd *cobra.Command, args []string) error {
+	serviceName := args[0]
+
+	if !isLocalCloudProject() {
+		return fmt.Errorf("not in a LocalCloud project directory")
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	projectName := cfg.Project.Name
+	if projectName == "" {
+		projectName = "default"
+	}
+
+	ctx := context.Background()
+	dockerManager, err := docker.NewManager(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create Docker manager: %w", err)
+	}
+
+	portManager := templates.NewPortManager()
+	serviceManager := services.NewServiceManager(projectName, dockerManager, portManager)
+
+	// Use resolveServiceName to find the actual service name
+	actualServiceName, err := resolveServiceName(serviceManager, serviceName)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Stopping %s service...\n", serviceName)
+
+	// Stop the service
+	if err := serviceManager.StopService(actualServiceName); err != nil {
+		return fmt.Errorf("failed to stop %s: %w", serviceName, err)
+	}
+
+	fmt.Printf("✓ %s stopped\n", serviceName)
+	return nil
+}
+
+func runServiceURL(cmd *cobra.Command, args []string) error {
+	serviceName := args[0]
+
+	if !isLocalCloudProject() {
+		return fmt.Errorf("not in a LocalCloud project directory")
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	projectName := cfg.Project.Name
+	if projectName == "" {
+		projectName = "default"
+	}
+
+	ctx := context.Background()
+	dockerManager, err := docker.NewManager(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create Docker manager: %w", err)
+	}
+
+	portManager := templates.NewPortManager()
+	serviceManager := services.NewServiceManager(projectName, dockerManager, portManager)
+
+	// Use resolveServiceName to find the actual service name
+	actualServiceName, err := resolveServiceName(serviceManager, serviceName)
+	if err != nil {
+		return err
+	}
+
+	// Get service URL
+	url, err := serviceManager.GetServiceURL(actualServiceName)
+	if err != nil {
+		return err
+	}
+
+	if urlOnly {
+		fmt.Println(url)
+	} else {
+		fmt.Printf("%s: %s\n", serviceName, url)
+	}
+
+	return nil
+}
+
+func runServiceRestart(cmd *cobra.Command, args []string) error {
+	serviceName := args[0]
+
+	if !isLocalCloudProject() {
+		return fmt.Errorf("not in a LocalCloud project directory")
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+
+	projectName := cfg.Project.Name
+	if projectName == "" {
+		projectName = "default"
+	}
+
+	ctx := context.Background()
+	dockerManager, err := docker.NewManager(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to connect to Docker: %w", err)
+	}
+	defer dockerManager.Close()
+
+	portManager := templates.NewPortManager()
+	serviceManager := services.NewServiceManager(projectName, dockerManager, portManager)
+
+	// Use resolveServiceName to find the actual service name
+	actualServiceName, err := resolveServiceName(serviceManager, serviceName)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Restarting %s...\n", serviceName)
+	if err := serviceManager.RestartService(actualServiceName); err != nil {
+		return fmt.Errorf("failed to restart %s: %w", serviceName, err)
+	}
+
+	printSuccess(fmt.Sprintf("%s restarted", serviceName))
+	return nil
+}
+
+// Add this function to internal/cli/service.go (near the other helper functions)
+
+// resolveServiceName tries to find the actual service name from an alias
+func resolveServiceName(serviceManager *services.ServiceManager, inputName string) (string, error) {
+	// First try ParseComponentName
+	normalizedName, _ := serviceManager.ParseComponentName(inputName)
+
+	// Check if service exists with normalized name
+	if _, err := serviceManager.GetServiceStatus(normalizedName); err == nil {
+		return normalizedName, nil
+	}
+
+	// Check if service exists with original name
+	if _, err := serviceManager.GetServiceStatus(inputName); err == nil {
+		return inputName, nil
+	}
+
+	// Check all running services for alias matches
+	allServices := serviceManager.ListServices()
+	for _, svc := range allServices {
+		// Check common aliases
+		switch svc.Name {
+		case "speech-to-text":
+			if inputName == "whisper" || inputName == "stt" || inputName == "speech-to-text" {
+				return svc.Name, nil
+			}
+		case "text-to-speech":
+			if inputName == "tts" || inputName == "piper" || inputName == "text-to-speech" {
+				return svc.Name, nil
+			}
+		case "vector-db":
+			if inputName == "qdrant" || inputName == "pgvector" || inputName == "vector" {
+				return svc.Name, nil
+			}
+		case "image-generation":
+			if inputName == "stable-diffusion" || inputName == "sd" || inputName == "image-gen" || inputName == "image" {
+				return svc.Name, nil
+			}
+		}
+
+		// Also check if the input matches the service name directly
+		if svc.Name == inputName {
+			return svc.Name, nil
+		}
+	}
+
+	return "", fmt.Errorf("service %s not found", inputName)
 }

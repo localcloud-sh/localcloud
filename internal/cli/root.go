@@ -21,6 +21,7 @@ var (
 	errorColor   = color.New(color.FgRed).SprintFunc()
 	warningColor = color.New(color.FgYellow).SprintFunc()
 	infoColor    = color.New(color.FgCyan).SprintFunc()
+	ServiceCmd   = serviceCmd
 )
 
 // rootCmd represents the base command
@@ -91,23 +92,6 @@ func initConfig() {
 			fmt.Printf("Config initialization warning: %v\n", err)
 		}
 	}
-}
-
-// Helper functions for consistent output
-func printSuccess(message string) {
-	fmt.Println(successColor("✓"), message)
-}
-
-func printError(message string) {
-	fmt.Println(errorColor("✗"), message)
-}
-
-func printWarning(message string) {
-	fmt.Println(warningColor("!"), message)
-}
-
-func printInfo(message string) {
-	fmt.Println(infoColor("ℹ"), message)
 }
 
 // AddTemplateCommands adds template-related commands to root

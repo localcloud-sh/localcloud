@@ -1,26 +1,17 @@
 cli:
-    showserviceinfo: true
+    show_service_info: true
 connectivity:
     enabled: false
     mdns:
         enabled: false
     tunnel:
         provider: cloudflare
-        persist: false
-        domain: ""
-        targeturl: ""
-        cloudflare:
-            tunnelid: ""
-            credentials: ""
-        ngrok:
-            authtoken: ""
-            region: ""
 project:
-    name: my-test-app
+    name: whi
     type: custom
 resources:
-    memorylimit: 4GB
-    cpulimit: "2"
+    memory_limit: 4GB
+    cpu_limit: "2"
 services:
     ai:
         port: 11434
@@ -31,18 +22,17 @@ services:
         type: postgres
         version: "16"
         port: 5432
-        extensions: []
     cache:
         type: redis
         port: 6379
         maxmemory: 512mb
-        maxmemorypolicy: allkeys-lru
+        maxmemory_policy: allkeys-lru
         persistence: false
     queue:
         type: redis
         port: 6380
         maxmemory: 1gb
-        maxmemorypolicy: noeviction
+        maxmemory_policy: noeviction
         persistence: true
         appendonly: true
         appendfsync: everysec

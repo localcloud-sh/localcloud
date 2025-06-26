@@ -199,14 +199,132 @@ func (sm *ServiceManager) StartService(name string, config ServiceConfig) error 
 		return fmt.Errorf("failed to allocate port for %s: %w", serviceName, err)
 	}
 
+	// Get Docker client and managers
+	client := sm.docker.GetClient()
+	imageManager := client.NewImageManager()
+	containerManager := client.NewContainerManager()
+	networkManager := client.NewNetworkManager()
+	volumeManager := client.NewVolumeManager()
+
+	// Ensure network exists
+	networkName := fmt.Sprintf("localcloud_%s_default", sm.projectName)
+	networks, err := networkManager.List()
+	if err != nil {
+		sm.portManager.ReleasePort(port)
+		return fmt.Errorf("failed to list networks: %w", err)
+	}
+
+	networkExists := false
+	for _, net := range networks {
+		if net.Name == networkName {
+			networkExists = true
+			break
+		}
+	}
+
+	if !networkExists {
+		fmt.Printf("Creating network %s...\n", networkName)
+		if _, err := networkManager.Create(networkName); err != nil {
+			sm.portManager.ReleasePort(port)
+			return fmt.Errorf("failed to create network: %w", err)
+		}
+	}
+
+	// Ensure volumes exist
+	for _, vol := range config.Volumes {
+		parts := strings.Split(vol, ":")
+		if len(parts) >= 2 {
+			volumeName := parts[0]
+			// Check if it's a named volume (not a path)
+			if !strings.HasPrefix(volumeName, "/") && !strings.HasPrefix(volumeName, "./") {
+				// Check if volume exists
+				volumes, err := volumeManager.List(nil)
+				if err != nil {
+					sm.portManager.ReleasePort(port)
+					return fmt.Errorf("failed to list volumes: %w", err)
+				}
+
+				volumeExists := false
+				for _, v := range volumes {
+					if v.Name == volumeName {
+						volumeExists = true
+						break
+					}
+				}
+
+				if !volumeExists {
+					fmt.Printf("Creating volume %s...\n", volumeName)
+					labels := map[string]string{
+						"com.localcloud.project": sm.projectName,
+						"com.localcloud.service": serviceName,
+					}
+					if err := volumeManager.Create(volumeName, labels); err != nil {
+						sm.portManager.ReleasePort(port)
+						return fmt.Errorf("failed to create volume %s: %w", volumeName, err)
+					}
+				}
+			}
+		}
+	}
+
+	// Check if image exists, pull if needed
+	imageExists, err := imageManager.Exists(config.Image)
+	if err != nil {
+		sm.portManager.ReleasePort(port)
+		return fmt.Errorf("failed to check image existence: %w", err)
+	}
+
+	if !imageExists {
+		fmt.Printf("Pulling image %s...\n", config.Image)
+		progress := make(chan docker.PullProgress)
+		done := make(chan error)
+
+		go func() {
+			done <- imageManager.Pull(config.Image, progress)
+		}()
+
+		// Display progress
+		lastStatus := ""
+		for {
+			select {
+			case p := <-progress:
+				if p.Status != lastStatus {
+					if p.ProgressDetail.Total > 0 {
+						percentage := int((p.ProgressDetail.Current * 100) / p.ProgressDetail.Total)
+						fmt.Printf("\rPulling: %s [%d%%]", p.Status, percentage)
+					} else {
+						fmt.Printf("\rPulling: %s", p.Status)
+					}
+					lastStatus = p.Status
+				}
+			case err := <-done:
+				fmt.Println() // New line after progress
+				if err != nil {
+					sm.portManager.ReleasePort(port)
+					return fmt.Errorf("failed to pull image: %w", err)
+				}
+				goto ImageReady
+			}
+		}
+	}
+
+ImageReady:
 	// Create container configuration
 	containerConfig := sm.buildContainerConfig(serviceName, config, port)
 
-	// Start the container
-	containerID, err := sm.docker.CreateAndStartContainer(containerConfig)
+	// Create the container
+	containerID, err := containerManager.Create(containerConfig)
 	if err != nil {
 		sm.portManager.ReleasePort(port)
-		return fmt.Errorf("failed to start %s: %w", serviceName, err)
+		return fmt.Errorf("failed to create container: %w", err)
+	}
+
+	// Start the container
+	if err := containerManager.Start(containerID); err != nil {
+		// Cleanup on failure
+		containerManager.Remove(containerID)
+		sm.portManager.ReleasePort(port)
+		return fmt.Errorf("failed to start container: %w", err)
 	}
 
 	// Register the service
@@ -235,7 +353,8 @@ func (sm *ServiceManager) StartService(name string, config ServiceConfig) error 
 
 	if err := sm.registry.Register(service); err != nil {
 		// Cleanup on registration failure
-		sm.docker.StopContainer(containerID, 10)
+		containerManager.Stop(containerID, 10)
+		containerManager.Remove(containerID)
 		sm.portManager.ReleasePort(port)
 		return fmt.Errorf("failed to register service: %w", err)
 	}
@@ -260,8 +379,12 @@ func (sm *ServiceManager) StopService(name string) error {
 	// Update status
 	sm.registry.UpdateStatus(name, "stopping")
 
+	// Get container manager
+	client := sm.docker.GetClient()
+	containerManager := client.NewContainerManager()
+
 	// Stop the container
-	if err := sm.docker.StopContainer(service.ContainerID, 10); err != nil {
+	if err := containerManager.Stop(service.ContainerID, 10); err != nil {
 		return fmt.Errorf("failed to stop container: %w", err)
 	}
 
@@ -351,8 +474,11 @@ func (sm *ServiceManager) buildContainerConfig(name string, config ServiceConfig
 		}
 	}
 
-	// Container name
+	// Container name - use consistent format
 	containerName := fmt.Sprintf("localcloud-%s-%s", sm.projectName, name)
+
+	// Network name - use consistent format
+	networkName := fmt.Sprintf("localcloud_%s_default", sm.projectName)
 
 	return docker.ContainerConfig{
 		Name:          containerName,
@@ -362,7 +488,7 @@ func (sm *ServiceManager) buildContainerConfig(name string, config ServiceConfig
 		Volumes:       volumes,
 		Command:       config.Command,
 		Labels:        labels,
-		Networks:      []string{fmt.Sprintf("localcloud_%s", sm.projectName)},
+		Networks:      []string{networkName},
 		RestartPolicy: "unless-stopped",
 	}
 }
@@ -371,6 +497,10 @@ func (sm *ServiceManager) buildContainerConfig(name string, config ServiceConfig
 func (sm *ServiceManager) monitorServiceHealth(name string) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
+
+	// Get container manager
+	client := sm.docker.GetClient()
+	containerManager := client.NewContainerManager()
 
 	for {
 		select {
@@ -382,17 +512,17 @@ func (sm *ServiceManager) monitorServiceHealth(name string) {
 			}
 
 			// Check container status
-			status, err := sm.docker.GetContainerStatus(service.ContainerID)
+			info, err := containerManager.Inspect(service.ContainerID)
 			if err != nil {
 				sm.registry.UpdateStatus(name, "error")
 				continue
 			}
 
 			// Update status
-			if status.State == "running" {
+			if info.State == "running" {
 				sm.registry.UpdateStatus(name, "running")
-				if status.Health != "" {
-					sm.registry.UpdateHealth(name, status.Health)
+				if info.Health != "" {
+					sm.registry.UpdateHealth(name, info.Health)
 				}
 			} else {
 				sm.registry.UpdateStatus(name, "stopped")

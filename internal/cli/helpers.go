@@ -434,3 +434,25 @@ func PrintPostgreSQLServiceInfo(port int, extensions []string) {
 	fmt.Println("  Try:")
 	fmt.Printf("    %s\n", cyan(fmt.Sprintf("psql postgresql://localcloud:localcloud@localhost:%d/localcloud", port)))
 }
+
+// Bu fonksiyonları mevcut helpers.go dosyasının SONUNA ekle:
+
+// printSuccess prints a success message with checkmark
+func printSuccess(message string) {
+	fmt.Println(successColor("✓"), message)
+}
+
+// printError prints an error message with X mark
+func printError(message string) {
+	fmt.Println(errorColor("✗"), message)
+}
+
+// printWarning prints a warning message
+func printWarning(message string) {
+	fmt.Println(warningColor("⚠"), message)
+}
+
+// printInfo prints an info message
+func printInfo(message string) {
+	fmt.Println(infoColor("ℹ"), message)
+}
