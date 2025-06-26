@@ -49,6 +49,8 @@ func Execute() {
 	}
 }
 
+// internal/cli/root.go - init() function update
+
 func init() {
 	cobra.OnInitialize(initConfig)
 
@@ -60,6 +62,7 @@ func init() {
 	// Add all subcommands
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(createCmd)
+	rootCmd.AddCommand(setupCmd) // Add setup command
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(stopCmd)
 	rootCmd.AddCommand(statusCmd)
@@ -73,11 +76,20 @@ func init() {
 	rootCmd.AddCommand(debugCmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(resetCmd)
+	rootCmd.AddCommand(componentCmd) // Add component commandlogsCmd)
+	rootCmd.AddCommand(psCmd)
+	rootCmd.AddCommand(modelsCmd)
+	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(storageCmd)
+	rootCmd.AddCommand(infoCmd)
+	rootCmd.AddCommand(tunnelCmd)
+	rootCmd.AddCommand(debugCmd)
+	rootCmd.AddCommand(doctorCmd)
+	rootCmd.AddCommand(resetCmd)
 	rootCmd.AddCommand(componentCmd) // Add component command
 	// Database command is added in database.go init()
 	// Template commands will be added from main.go
 }
-
 func initConfig() {
 	// Config initialization will be implemented in Task 3
 	if verbose {

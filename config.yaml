@@ -7,7 +7,7 @@ connectivity:
     tunnel:
         provider: cloudflare
 project:
-    name: my-project
+    name: a
     type: custom
     components: []
 resources:

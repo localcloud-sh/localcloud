@@ -51,10 +51,19 @@ var componentInfoCmd = &cobra.Command{
 	RunE:  runComponentInfo,
 }
 
+var componentUpdateCmd = &cobra.Command{
+	Use:   "update [component-id]",
+	Short: "Update component configuration (e.g., change model)",
+	Long:  `Update a component's configuration, such as changing the AI model for LLM or embedding components.`,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runComponentUpdate,
+}
+
 func init() {
 	componentCmd.AddCommand(componentListCmd)
 	componentCmd.AddCommand(componentAddCmd)
 	componentCmd.AddCommand(componentRemoveCmd)
+	componentCmd.AddCommand(componentUpdateCmd) // Add update command
 	componentCmd.AddCommand(componentInfoCmd)
 }
 
@@ -115,6 +124,8 @@ func runComponentList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// internal/cli/component.go - Updated runComponentAdd function
+
 func runComponentAdd(cmd *cobra.Command, args []string) error {
 	componentID := args[0]
 
@@ -149,33 +160,78 @@ func runComponentAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Save configuration
+	// Save configuration first
 	if err := config.Save(); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
 	printSuccess(fmt.Sprintf("Added component: %s", comp.Name))
 
+	// If component has models, run interactive model selection
+	if len(comp.Models) > 0 && (comp.ID == "llm" || comp.ID == "embedding") {
+		fmt.Println()
+
+		// Ask if they want to select a model now
+		fmt.Printf("Would you like to select a model now? (Y/n): ")
+		var response string
+		fmt.Scanln(&response)
+
+		if response == "" || strings.ToLower(response) == "y" {
+			// Create Ollama manager
+			manager := models.NewManager("http://localhost:11434")
+
+			// Select model based on component type
+			var selectedModel string
+			if comp.ID == "embedding" {
+				selectedModel, err = selectEmbeddingModel(manager)
+			} else {
+				selectedModel, err = selectComponentModel(comp, manager)
+			}
+
+			if err != nil {
+				printWarning(fmt.Sprintf("Model selection cancelled: %v", err))
+			} else if selectedModel != "" {
+				// Update config with selected model
+				v := config.GetViper()
+				currentModels := cfg.Services.AI.Models
+
+				// Add model if not already in list
+				modelExists := false
+				for _, m := range currentModels {
+					if m == selectedModel {
+						modelExists = true
+						break
+					}
+				}
+
+				if !modelExists {
+					currentModels = append(currentModels, selectedModel)
+					v.Set("services.ai.models", currentModels)
+
+					// Set as default if it's the first model
+					if len(currentModels) == 1 {
+						v.Set("services.ai.default", selectedModel)
+					}
+
+					// Save updated config
+					if err := config.Save(); err != nil {
+						printWarning("Failed to save model selection")
+					} else {
+						printSuccess(fmt.Sprintf("Model '%s' configured", selectedModel))
+					}
+				}
+			}
+		}
+	}
+
 	// Show next steps
 	fmt.Println("\nNext steps:")
 
-	// Check if models need to be selected
-	if len(comp.Models) > 0 {
-		fmt.Printf("  1. Select a model: lc models pull <model-name>\n")
-		fmt.Println("     Available models:")
-		for _, model := range comp.Models {
-			fmt.Printf("     - %s (%s)", model.Name, model.Size)
-			if model.Default {
-				fmt.Print(" [Recommended]")
-			}
-			fmt.Println()
-		}
-		fmt.Println()
-	}
-
-	// Show service start command
-	if len(comp.Services) > 0 {
-		fmt.Printf("  2. Start the service: lc start %s\n", comp.Services[0])
+	// Show restart command for AI components
+	if comp.ID == "llm" || comp.ID == "embedding" {
+		fmt.Println("  • Restart services: lc restart")
+	} else if len(comp.Services) > 0 {
+		fmt.Printf("  • Start the service: lc start %s\n", comp.Services[0])
 	}
 
 	return nil
@@ -389,15 +445,39 @@ func enableComponent(cfg *config.Config, comp components.Component) error {
 	return nil
 }
 
-// disableComponent updates config to disable a component
+// Updated disableComponent function to handle AI components
 func disableComponent(cfg *config.Config, comp components.Component) error {
 	v := config.GetViper()
 
 	switch comp.ID {
 	case "llm", "embedding":
-		// Don't disable AI service entirely, just remove models
-		// This is complex and would need more logic
-		return fmt.Errorf("removing AI components not yet implemented")
+		// Remove only the models for this component type
+		newModels := []string{}
+		removedModel := ""
+
+		for _, model := range cfg.Services.AI.Models {
+			if comp.ID == "embedding" && models.IsEmbeddingModel(model) {
+				removedModel = model
+				continue // Remove embedding models
+			} else if comp.ID == "llm" && !models.IsEmbeddingModel(model) {
+				removedModel = model
+				continue // Remove LLM models
+			}
+			newModels = append(newModels, model)
+		}
+
+		v.Set("services.ai.models", newModels)
+
+		// Update default if needed
+		if cfg.Services.AI.Default == removedModel && len(newModels) > 0 {
+			v.Set("services.ai.default", newModels[0])
+		}
+
+		// If no models left, disable the AI service
+		if len(newModels) == 0 {
+			v.Set("services.ai.port", 0)
+			v.Set("services.ai.default", "")
+		}
 
 	case "vector":
 		// Remove pgvector extension
@@ -410,14 +490,29 @@ func disableComponent(cfg *config.Config, comp components.Component) error {
 		}
 		v.Set("services.database.extensions", newExtensions)
 
+		// If no extensions left and no other use, disable database
+		if len(newExtensions) == 0 {
+			// Check if any other component needs database
+			// For now, just remove extensions
+		}
+
 	case "cache":
 		v.Set("services.cache.type", "")
+		v.Set("services.cache.port", 0)
 
 	case "queue":
 		v.Set("services.queue.type", "")
+		v.Set("services.queue.port", 0)
 
 	case "storage":
 		v.Set("services.storage.type", "")
+		v.Set("services.storage.port", 0)
+		v.Set("services.storage.console", 0)
+
+	case "stt":
+		v.Set("services.whisper.type", "")
+		v.Set("services.whisper.port", 0)
+		v.Set("services.whisper.model", "")
 	}
 
 	return nil
@@ -431,4 +526,120 @@ func appendUnique(slice []string, item string) []string {
 		}
 	}
 	return append(slice, item)
+}
+func runComponentUpdate(cmd *cobra.Command, args []string) error {
+	componentID := args[0]
+
+	// Check if project is initialized
+	if !IsProjectInitialized() {
+		return fmt.Errorf("no LocalCloud project found. Run 'lc init' first")
+	}
+
+	// Validate component exists
+	comp, err := components.GetComponent(componentID)
+	if err != nil {
+		return fmt.Errorf("unknown component: %s", componentID)
+	}
+
+	// Load config
+	cfg := config.Get()
+	if cfg == nil {
+		return fmt.Errorf("failed to load configuration")
+	}
+
+	// Check if enabled
+	enabledComponents := getEnabledComponents(cfg)
+	found := false
+	for _, enabled := range enabledComponents {
+		if enabled == componentID {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		printWarning(fmt.Sprintf("Component '%s' is not enabled", componentID))
+		return nil
+	}
+
+	// Only AI components can be updated (model change)
+	if componentID != "llm" && componentID != "embedding" {
+		printWarning("Only LLM and embedding components can be updated")
+		return nil
+	}
+
+	// Find current model
+	var currentModel string
+	for _, model := range cfg.Services.AI.Models {
+		if componentID == "embedding" && models.IsEmbeddingModel(model) {
+			currentModel = model
+			break
+		} else if componentID == "llm" && !models.IsEmbeddingModel(model) {
+			currentModel = model
+			break
+		}
+	}
+
+	fmt.Printf("Current %s model: %s\n", componentID, currentModel)
+	fmt.Println("\nSelect new model:")
+
+	// Create Ollama manager
+	manager := models.NewManager("http://localhost:11434")
+
+	// Select new model
+	var selectedModel string
+	if componentID == "embedding" {
+		selectedModel, err = selectEmbeddingModel(manager)
+	} else {
+		selectedModel, err = selectComponentModel(comp, manager)
+	}
+
+	if err != nil || selectedModel == "" {
+		printWarning("Model selection cancelled")
+		return nil
+	}
+
+	// Update config
+	v := config.GetViper()
+	newModels := []string{}
+
+	// Keep other models, replace the one for this component
+	for _, model := range cfg.Services.AI.Models {
+		if componentID == "embedding" && models.IsEmbeddingModel(model) {
+			continue // Skip old embedding model
+		} else if componentID == "llm" && !models.IsEmbeddingModel(model) {
+			continue // Skip old LLM model
+		}
+		newModels = append(newModels, model)
+	}
+
+	// Add new model
+	newModels = append(newModels, selectedModel)
+	v.Set("services.ai.models", newModels)
+
+	// Update default if it was the old model
+	if cfg.Services.AI.Default == currentModel {
+		v.Set("services.ai.default", selectedModel)
+	}
+
+	// Save configuration
+	if err := config.Save(); err != nil {
+		return fmt.Errorf("failed to save configuration: %w", err)
+	}
+
+	printSuccess(fmt.Sprintf("Updated %s model: %s → %s", componentID, currentModel, selectedModel))
+
+	// Offer to remove old model
+	fmt.Printf("\nWould you like to remove the old model '%s'? (y/N): ", currentModel)
+	var response string
+	fmt.Scanln(&response)
+
+	if strings.ToLower(response) == "y" {
+		fmt.Printf("Run: lc models remove %s\n", currentModel)
+	}
+
+	fmt.Println("\nNext steps:")
+	fmt.Println("  • Restart services: lc restart")
+
+	return nil
 }

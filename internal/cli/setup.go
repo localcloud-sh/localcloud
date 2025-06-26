@@ -2,12 +2,12 @@
 package cli
 
 import (
-	"context"
 	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/localcloud/localcloud/internal/config"
 	"github.com/localcloud/localcloud/internal/system"
 	"github.com/localcloud/localcloud/internal/templates"
 	"github.com/spf13/cobra"
@@ -16,48 +16,81 @@ import (
 // templatesFS will be set from main.go
 var templatesFS embed.FS
 
-// SetupCmd creates the setup command
-func SetupCmd(fs embed.FS) *cobra.Command {
-	// Store the filesystem
-	templatesFS = fs
+var setupCmd = &cobra.Command{
+	Use:   "setup [template]",
+	Short: "Configure project or create from template",
+	Long: `Configure your LocalCloud project interactively or create a new project from a template.
 
-	var options templates.SetupOptions
-
-	cmd := &cobra.Command{
-		Use:   "setup [template]",
-		Short: "Set up a new project from a template",
-		Long: `Set up a new LocalCloud project from a template.
+When run without arguments, it launches the interactive setup wizard for the current project.
+When run with a template name, it creates a new project from that template.
 
 Available templates:
   chat           - ChatGPT-like interface with conversation history
   code-assistant - AI-powered code editor and assistant
   transcribe     - Audio/video transcription service
   image-gen      - AI image generation interface
-  api-only       - REST API without frontend
-
-Examples:
-  lc setup chat
-  lc setup chat --name my-ai-chat
-  lc setup api-only --port 8080 --skip-docker`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			templateName := args[0]
-			return runSetup(cmd.Context(), templatesFS, templateName, options)
-		},
-	}
-
-	// Add flags
-	cmd.Flags().StringVar(&options.ProjectName, "name", "", "Project name (default: template name)")
-	cmd.Flags().IntVar(&options.APIPort, "port", 0, "API port (default: auto)")
-	cmd.Flags().IntVar(&options.FrontendPort, "frontend-port", 0, "Frontend port (default: auto)")
-	cmd.Flags().StringVar(&options.ModelName, "model", "", "AI model to use (default: recommended)")
-	cmd.Flags().BoolVar(&options.SkipDocker, "skip-docker", false, "Generate files only, don't start services")
-	cmd.Flags().BoolVar(&options.Force, "force", false, "Overwrite existing directory")
-
-	return cmd
+  api-only       - REST API without frontend`,
+	Example: `  lc setup                   # Configure current project interactively
+  lc setup chat              # Create new project from chat template
+  lc setup api-only --port 8080`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runSetup,
 }
 
-func runSetup(ctx context.Context, templatesFS embed.FS, templateName string, options templates.SetupOptions) error {
+func init() {
+	// Template-specific flags
+	setupCmd.Flags().String("name", "", "Project name (for template creation)")
+	setupCmd.Flags().Int("port", 0, "API port (for template creation)")
+	setupCmd.Flags().Int("frontend-port", 0, "Frontend port (for template creation)")
+	setupCmd.Flags().String("model", "", "AI model to use (for template creation)")
+	setupCmd.Flags().Bool("skip-docker", false, "Generate files only, don't start services")
+	setupCmd.Flags().Bool("force", false, "Overwrite existing directory")
+}
+
+func runSetup(cmd *cobra.Command, args []string) error {
+	// If no template specified, run interactive setup for current project
+	if len(args) == 0 {
+		return runInteractiveSetup(cmd)
+	}
+
+	// Otherwise, create from template
+	return runTemplateSetup(cmd, args[0])
+}
+
+// runInteractiveSetup runs the component/model configuration wizard
+func runInteractiveSetup(cmd *cobra.Command) error {
+	// Check if project is initialized
+	if !IsProjectInitialized() {
+		return fmt.Errorf("no LocalCloud project found. Run 'lc init' first")
+	}
+
+	// Get config to extract project name
+	cfg := config.Get()
+	if cfg == nil {
+		return fmt.Errorf("failed to load configuration")
+	}
+
+	projectName := cfg.Project.Name
+	if projectName == "" {
+		projectName = "my-project"
+	}
+
+	// Run the existing interactive init function
+	return RunInteractiveInit(projectName)
+}
+
+// runTemplateSetup creates a new project from template
+func runTemplateSetup(cmd *cobra.Command, templateName string) error {
+	var options templates.SetupOptions
+
+	// Get flags
+	options.ProjectName, _ = cmd.Flags().GetString("name")
+	options.APIPort, _ = cmd.Flags().GetInt("port")
+	options.FrontendPort, _ = cmd.Flags().GetInt("frontend-port")
+	options.ModelName, _ = cmd.Flags().GetString("model")
+	options.SkipDocker, _ = cmd.Flags().GetBool("skip-docker")
+	options.Force, _ = cmd.Flags().GetBool("force")
+
 	// Initialize templates
 	if err := templates.InitializeTemplates(templatesFS); err != nil {
 		return fmt.Errorf("failed to initialize templates: %w", err)
@@ -90,7 +123,7 @@ func runSetup(ctx context.Context, templatesFS embed.FS, templateName string, op
 	options.ProjectName = projectPath
 
 	// Create system checker
-	systemChecker := system.NewChecker(ctx)
+	systemChecker := system.NewChecker(cmd.Context())
 
 	// Create port manager
 	portManager := templates.NewPortManager()
@@ -111,11 +144,18 @@ func runSetup(ctx context.Context, templatesFS embed.FS, templateName string, op
 	)
 
 	// Run setup
-	if err := wizard.Run(ctx, templateName, options); err != nil {
+	if err := wizard.Run(cmd.Context(), templateName, options); err != nil {
 		return fmt.Errorf("setup failed: %w", err)
 	}
 
 	return nil
+}
+
+// SetupCmd creates the setup command (for external initialization)
+func SetupCmd(fs embed.FS) *cobra.Command {
+	// Store the filesystem
+	templatesFS = fs
+	return setupCmd
 }
 
 // TemplatesCmd creates the templates command

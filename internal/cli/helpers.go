@@ -4,6 +4,8 @@ package cli
 import (
 	"fmt"
 	"github.com/fatih/color"
+	"github.com/localcloud/localcloud/internal/config"
+	"github.com/localcloud/localcloud/internal/models"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -347,65 +349,81 @@ func PrintRedisQueueInfo(port int) {
 	fmt.Printf("    %s\n", cyan(fmt.Sprintf("redis-cli -p %d ZRANGE priority 0 -1", port)))
 }
 
-// internal/cli/helpers.go
-// ADD these functions to your existing helpers.go file
+// internal/cli/helpers.go - Updated PrintPgVectorServiceInfo
 
-// PrintPgVectorServiceInfo prints PostgreSQL with pgvector service information
 func PrintPgVectorServiceInfo(port int) {
 	green := color.New(color.FgGreen).SprintFunc()
 	bold := color.New(color.Bold).SprintFunc()
 	cyan := color.New(color.FgCyan).SprintFunc()
 	yellow := color.New(color.FgYellow).SprintFunc()
+	red := color.New(color.FgRed).SprintFunc()
 
 	fmt.Printf("\n%s %s\n", green("✓"), bold("PostgreSQL with pgvector"))
 	fmt.Printf("  URL: %s\n", cyan(fmt.Sprintf("postgresql://localcloud:localcloud@localhost:%d/localcloud", port)))
-	fmt.Println("  Vector search ready!")
 	fmt.Println()
 
-	fmt.Printf("  %s\n", yellow("pgvector Examples:"))
+	// Check if embedding model is available
+	cfg := config.Get()
+	hasEmbeddingModel := false
+	embeddingModel := ""
 
-	// Connection example
+	for _, model := range cfg.Services.AI.Models {
+		if models.IsEmbeddingModel(model) {
+			hasEmbeddingModel = true
+			embeddingModel = model
+			break
+		}
+	}
+
+	if !hasEmbeddingModel {
+		fmt.Printf("  %s %s\n", red("⚠"), yellow("Vector search requires an embedding model!"))
+		fmt.Printf("  Add one with: %s\n", cyan("lc component add embedding"))
+		fmt.Println()
+	}
+
+	// Regular SQL examples
+	fmt.Printf("  %s\n", yellow("Regular SQL Examples:"))
 	fmt.Printf("    %s\n", cyan("# Connect to database"))
 	fmt.Printf("    %s\n", cyan(fmt.Sprintf("psql postgresql://localcloud:localcloud@localhost:%d/localcloud", port)))
 	fmt.Println()
 
-	// Create table example
-	fmt.Printf("    %s\n", cyan("# Create a table with vector column"))
-	fmt.Printf("    %s\n", cyan("CREATE TABLE items ("))
+	fmt.Printf("    %s\n", cyan("# Create a regular table"))
+	fmt.Printf("    %s\n", cyan("CREATE TABLE users ("))
 	fmt.Printf("    %s\n", cyan("  id SERIAL PRIMARY KEY,"))
-	fmt.Printf("    %s\n", cyan("  content TEXT,"))
-	fmt.Printf("    %s\n", cyan("  embedding vector(1536)"))
+	fmt.Printf("    %s\n", cyan("  name VARCHAR(100),"))
+	fmt.Printf("    %s\n", cyan("  email VARCHAR(255) UNIQUE,"))
+	fmt.Printf("    %s\n", cyan("  created_at TIMESTAMP DEFAULT NOW()"))
 	fmt.Printf("    %s\n", cyan(");"))
 	fmt.Println()
 
-	// Insert example
-	fmt.Printf("    %s\n", cyan("# Insert vector data"))
-	fmt.Printf("    %s\n", cyan("INSERT INTO items (content, embedding)"))
-	fmt.Printf("    %s\n", cyan("VALUES ('Sample text', '[0.1, 0.2, 0.3, ...]');"))
-	fmt.Println()
+	// Vector examples only if embedding model exists
+	if hasEmbeddingModel {
+		fmt.Printf("  %s\n", yellow("Vector Search Examples:"))
+		fmt.Printf("    %s\n", cyan("# Create table with vectors"))
+		fmt.Printf("    %s\n", cyan("CREATE TABLE documents ("))
+		fmt.Printf("    %s\n", cyan("  id SERIAL PRIMARY KEY,"))
+		fmt.Printf("    %s\n", cyan("  content TEXT,"))
+		fmt.Printf("    %s\n", cyan("  embedding vector(768)  -- dimension depends on model"))
+		fmt.Printf("    %s\n", cyan(");"))
+		fmt.Println()
 
-	// Search example
-	fmt.Printf("    %s\n", cyan("# Find similar vectors (cosine similarity)"))
-	fmt.Printf("    %s\n", cyan("SELECT content, embedding <=> '[0.1, 0.2, 0.3, ...]' AS distance"))
-	fmt.Printf("    %s\n", cyan("FROM items"))
-	fmt.Printf("    %s\n", cyan("ORDER BY distance"))
-	fmt.Printf("    %s\n", cyan("LIMIT 5;"))
-	fmt.Println()
+		fmt.Printf("    %s\n", cyan("# Get embedding from your text"))
+		fmt.Printf("    %s\n", cyan("curl http://localhost:11434/api/embeddings \\"))
+		fmt.Printf("    %s\n", cyan(fmt.Sprintf("  -d '{\"model\":\"%s\",\"prompt\":\"Your text here\"}'", embeddingModel)))
+		fmt.Println()
 
-	// Index example
-	fmt.Printf("    %s\n", cyan("# Create index for faster searches"))
-	fmt.Printf("    %s\n", cyan("CREATE INDEX ON items"))
-	fmt.Printf("    %s\n", cyan("USING ivfflat (embedding vector_cosine_ops)"))
-	fmt.Printf("    %s\n", cyan("WITH (lists = 100);"))
-	fmt.Println()
+		fmt.Printf("    %s\n", cyan("# Search similar documents"))
+		fmt.Printf("    %s\n", cyan("SELECT * FROM documents"))
+		fmt.Printf("    %s\n", cyan("ORDER BY embedding <=> '[your_embedding_vector]'"))
+		fmt.Printf("    %s\n", cyan("LIMIT 5;"))
+	} else {
+		fmt.Printf("  %s\n", yellow("Vector Search (requires embedding model):"))
+		fmt.Printf("    %s\n", cyan("# First add embedding component:"))
+		fmt.Printf("    %s\n", cyan("lc component add embedding"))
+		fmt.Printf("    %s\n", cyan("# Then restart: lc restart"))
+	}
 
-	fmt.Printf("  %s\n", yellow("Integration with Ollama embeddings:"))
-	fmt.Printf("    %s\n", cyan("# Get embedding from Ollama"))
-	fmt.Printf("    %s\n", cyan("curl http://localhost:11434/api/embeddings \\"))
-	fmt.Printf("    %s\n", cyan("  -d '{\"model\":\"nomic-embed-text\",\"prompt\":\"Your text here\"}'"))
 	fmt.Println()
-
-	fmt.Printf("  %s For more: %s\n", yellow("📚"), cyan("https://github.com/pgvector/pgvector"))
 }
 
 // PrintPostgreSQLServiceInfo prints standard PostgreSQL service information

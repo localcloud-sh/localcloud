@@ -213,33 +213,66 @@ func selectModels(componentIDs []string) (map[string]string, error) {
 	return selectedModels, nil
 }
 
-// selectEmbeddingModel handles embedding model selection
+// internal/cli/init_interactive.go - Updated selectEmbeddingModel function
+
 func selectEmbeddingModel(manager *models.Manager) (string, error) {
 	fmt.Println()
 	fmt.Println(infoColor("Selecting embedding model..."))
 
-	// Get installed embedding models
-	installedEmbeddings, _ := manager.GetAvailableEmbeddingModels()
+	// Get ALL installed models
+	allInstalledModels, _ := manager.List()
+
+	// Filter embedding models from installed
+	installedEmbeddings := []models.Model{}
+	customEmbeddings := []models.Model{}
+
+	for _, model := range allInstalledModels {
+		if models.IsEmbeddingModel(model.Name) {
+			// Check if it's in our predefined list
+			isPredefined := false
+			modelBaseName := strings.TrimSuffix(model.Name, ":latest")
+
+			for _, predef := range models.PredefinedEmbeddingModels {
+				if predef.Name == modelBaseName || predef.Name == model.Name {
+					isPredefined = true
+					// Update model name to match predefined name (without :latest)
+					model.Name = predef.Name
+					break
+				}
+			}
+
+			if isPredefined {
+				installedEmbeddings = append(installedEmbeddings, model)
+			} else {
+				customEmbeddings = append(customEmbeddings, model)
+			}
+		}
+	}
 
 	// Build options
 	var options []string
 	var modelMap = make(map[string]string)
 
-	// Add installed models
+	// 1. Add predefined models (installed and not installed)
+	// Check installed predefined models
 	for _, model := range installedEmbeddings {
 		info := models.GetEmbeddingModelInfo(model.Name)
 		var dims string
-		if info != nil {
+		if info != nil && info.Dimensions > 0 {
 			dims = fmt.Sprintf(", %d dims", info.Dimensions)
 		}
 		option := fmt.Sprintf("✓ %s%s [Installed]", model.Name, dims)
+		if model.Name == "nomic-embed-text" {
+			option += " (Recommended)"
+		}
 		options = append(options, option)
 		modelMap[option] = model.Name
 	}
 
-	// Add popular embedding models if not installed
-	popularModels := []string{"nomic-embed-text", "mxbai-embed-large", "all-minilm"}
+	// Add not-installed predefined models
+	popularModels := []string{"nomic-embed-text", "mxbai-embed-large", "all-minilm", "bge-base", "bge-large"}
 	for _, modelName := range popularModels {
+		// Skip if already installed
 		installed := false
 		for _, m := range installedEmbeddings {
 			if m.Name == modelName {
@@ -247,6 +280,7 @@ func selectEmbeddingModel(manager *models.Manager) (string, error) {
 				break
 			}
 		}
+
 		if !installed {
 			info := models.GetEmbeddingModelInfo(modelName)
 			var details string
@@ -262,8 +296,20 @@ func selectEmbeddingModel(manager *models.Manager) (string, error) {
 		}
 	}
 
-	// Add custom model option
-	customOption := "  💡 Use custom model..."
+	// 2. Add custom embedding models if any
+	if len(customEmbeddings) > 0 {
+		options = append(options, "─────────────────────────────────")
+
+		for _, model := range customEmbeddings {
+			option := fmt.Sprintf("✓ %s [Installed] (Custom)", model.Name)
+			options = append(options, option)
+			modelMap[option] = model.Name
+		}
+	}
+
+	// 3. Add manual entry option
+	options = append(options, "─────────────────────────────────")
+	customOption := "💡 Enter embedding model name manually..."
 	options = append(options, customOption)
 
 	// Find default option
@@ -276,10 +322,11 @@ func selectEmbeddingModel(manager *models.Manager) (string, error) {
 	}
 
 	prompt := &survey.Select{
-		Message: "Select embedding model:",
-		Options: options,
-		Default: options[defaultIndex],
-		Help:    "Models marked with ✓ are already installed",
+		Message:  "Select embedding model:",
+		Options:  options,
+		Default:  options[defaultIndex],
+		Help:     "Models marked with ✓ are already installed",
+		PageSize: 15,
 	}
 
 	var selected string
@@ -288,36 +335,67 @@ func selectEmbeddingModel(manager *models.Manager) (string, error) {
 		return "", err
 	}
 
-	// Handle custom model
+	// Handle manual entry
 	if selected == customOption {
 		var customModel string
-		prompt := &survey.Input{
+		inputPrompt := &survey.Input{
 			Message: "Enter custom embedding model name:",
-			Help:    "e.g., mxbai-embed-large, bge-base-en-v1.5",
+			Help:    "e.g., bge-m3, e5-mistral-7b-instruct, multilingual-e5-large",
 		}
-		err := survey.AskOne(prompt, &customModel, survey.WithValidator(survey.Required))
+		err := survey.AskOne(inputPrompt, &customModel, survey.WithValidator(survey.Required))
 		if err != nil {
 			return "", err
 		}
 
-		// Offer to download custom model
-		fmt.Printf("\n%s Custom model '%s' selected.\n",
-			infoColor("ℹ"), customModel)
+		// Check if it's actually an embedding model
+		if !models.IsEmbeddingModel(customModel) {
+			fmt.Printf("\n%s '%s' doesn't appear to be an embedding model.\n",
+				warningColor("⚠"), customModel)
 
-		var install bool
-		installPrompt := &survey.Confirm{
-			Message: "Would you like to download it now?",
-			Default: true,
+			var proceed bool
+			proceedPrompt := &survey.Confirm{
+				Message: "Use it anyway?",
+				Default: false,
+			}
+			survey.AskOne(proceedPrompt, &proceed)
+			if !proceed {
+				return selectEmbeddingModel(manager) // Retry selection
+			}
 		}
-		survey.AskOne(installPrompt, &install)
 
-		if install {
-			if err := downloadModel(manager, customModel); err != nil {
-				return "", fmt.Errorf("failed to download model: %w", err)
+		// Check if already installed
+		isInstalled := false
+		for _, m := range allInstalledModels {
+			if m.Name == customModel {
+				isInstalled = true
+				break
+			}
+		}
+
+		if !isInstalled {
+			fmt.Printf("\n%s Model '%s' is not installed.\n",
+				warningColor("!"), customModel)
+
+			var install bool
+			installPrompt := &survey.Confirm{
+				Message: "Would you like to download it now?",
+				Default: true,
+			}
+			survey.AskOne(installPrompt, &install)
+
+			if install {
+				if err := downloadModel(manager, customModel); err != nil {
+					return "", fmt.Errorf("failed to download model: %w", err)
+				}
 			}
 		}
 
 		return customModel, nil
+	}
+
+	// Skip separator lines
+	if strings.Contains(selected, "─────") {
+		return "", fmt.Errorf("invalid selection")
 	}
 
 	modelName := modelMap[selected]
@@ -344,22 +422,48 @@ func selectEmbeddingModel(manager *models.Manager) (string, error) {
 	return modelName, nil
 }
 
-// selectComponentModel handles model selection for a component
+// internal/cli/init_interactive.go - Updated selectComponentModel function
+
 func selectComponentModel(comp components.Component, manager *models.Manager) (string, error) {
 	fmt.Println()
 	fmt.Printf("%s Selecting model for %s...\n", infoColor("ℹ"), comp.Name)
 
-	// Get installed models
+	// Get ALL installed models from Ollama
 	installedModels, _ := manager.List()
 	installedMap := make(map[string]bool)
+	customModels := []models.Model{} // Models not in our predefined list
+
+	// Categorize models
 	for _, m := range installedModels {
-		installedMap[m.Name] = true
+		// Normalize model name (remove :latest tag)
+		modelBaseName := strings.TrimSuffix(m.Name, ":latest")
+		installedMap[modelBaseName] = true
+		installedMap[m.Name] = true // Also keep original name
+
+		// Check if it's a predefined model
+		isPredefined := false
+		for _, predefModel := range comp.Models {
+			if predefModel.Name == modelBaseName || predefModel.Name == m.Name {
+				isPredefined = true
+				break
+			}
+		}
+
+		// If not predefined and suitable for this component, add to custom
+		if !isPredefined {
+			if comp.ID == "llm" && !models.IsEmbeddingModel(m.Name) {
+				customModels = append(customModels, m)
+			} else if comp.ID == "embedding" && models.IsEmbeddingModel(m.Name) {
+				customModels = append(customModels, m)
+			}
+		}
 	}
 
 	// Build options
 	var options []string
 	var modelMap = make(map[string]string)
 
+	// 1. Add predefined models
 	for _, model := range comp.Models {
 		var option string
 		if installedMap[model.Name] {
@@ -377,6 +481,23 @@ func selectComponentModel(comp components.Component, manager *models.Manager) (s
 		modelMap[option] = model.Name
 	}
 
+	// 2. Add separator if there are custom models
+	if len(customModels) > 0 {
+		options = append(options, "─────────────────────────────────")
+
+		// Add custom models found in Ollama
+		for _, model := range customModels {
+			option := fmt.Sprintf("✓ %s [Installed] (Custom)", model.Name)
+			options = append(options, option)
+			modelMap[option] = model.Name
+		}
+	}
+
+	// 3. Add manual entry option
+	options = append(options, "─────────────────────────────────")
+	customOption := "💡 Enter model name manually..."
+	options = append(options, customOption)
+
 	// Find default option
 	defaultIndex := 0
 	for i, opt := range options {
@@ -387,16 +508,64 @@ func selectComponentModel(comp components.Component, manager *models.Manager) (s
 	}
 
 	prompt := &survey.Select{
-		Message: fmt.Sprintf("Select %s model:", strings.ToLower(comp.Name)),
-		Options: options,
-		Default: options[defaultIndex],
-		Help:    "Models marked with ✓ are already installed",
+		Message:  fmt.Sprintf("Select %s model:", strings.ToLower(comp.Name)),
+		Options:  options,
+		Default:  options[defaultIndex],
+		Help:     "Models marked with ✓ are already installed",
+		PageSize: 15, // Show more options
 	}
 
 	var selected string
 	err := survey.AskOne(prompt, &selected)
 	if err != nil {
 		return "", err
+	}
+
+	// Handle manual entry
+	if selected == customOption {
+		var customModel string
+		inputPrompt := &survey.Input{
+			Message: "Enter model name:",
+			Help:    "e.g., llama3.2, mistral, codellama",
+		}
+		err := survey.AskOne(inputPrompt, &customModel, survey.WithValidator(survey.Required))
+		if err != nil {
+			return "", err
+		}
+
+		// Check if already installed
+		isInstalled := false
+		for _, m := range installedModels {
+			if m.Name == customModel {
+				isInstalled = true
+				break
+			}
+		}
+
+		if !isInstalled {
+			fmt.Printf("\n%s Model '%s' is not installed.\n",
+				warningColor("!"), customModel)
+
+			var install bool
+			installPrompt := &survey.Confirm{
+				Message: "Would you like to download it now?",
+				Default: true,
+			}
+			survey.AskOne(installPrompt, &install)
+
+			if install {
+				if err := downloadModel(manager, customModel); err != nil {
+					return "", fmt.Errorf("failed to download model: %w", err)
+				}
+			}
+		}
+
+		return customModel, nil
+	}
+
+	// Skip separator lines
+	if strings.Contains(selected, "─────") {
+		return "", fmt.Errorf("invalid selection")
 	}
 
 	modelName := modelMap[selected]
@@ -422,8 +591,6 @@ func selectComponentModel(comp components.Component, manager *models.Manager) (s
 
 	return modelName, nil
 }
-
-// checkResources performs resource checks for selected components
 func checkResources(componentIDs []string, selectedModels map[string]string) error {
 	// Calculate total RAM requirement
 	totalRAM := components.CalculateRAMRequirement(componentIDs)

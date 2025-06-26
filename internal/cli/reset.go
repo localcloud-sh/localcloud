@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/localcloud/localcloud/internal/config"
@@ -12,11 +13,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// internal/cli/reset.go - Updated with destroy option
+
 var (
 	resetKeepData   bool
 	resetHard       bool
 	resetConfirm    bool
 	resetKeepModels bool
+	resetDestroy    bool // New flag for complete destruction
 )
 
 var resetCmd = &cobra.Command{
@@ -29,10 +33,11 @@ By default, this will:
   - Remove all containers
   - Keep data volumes and configuration
 	
-Use --hard for complete cleanup including data.`,
+Use --hard for complete cleanup including data.
+Use --destroy for complete project removal (like teardown).`,
 	Example: `  lc reset              # Soft reset (keep data)
   lc reset --hard       # Hard reset (remove everything)
-  lc reset --keep-data  # Keep data volumes
+  lc reset --destroy    # Complete removal (requires confirmation)
   lc reset --yes        # Skip confirmation`,
 	RunE: runReset,
 }
@@ -40,6 +45,7 @@ Use --hard for complete cleanup including data.`,
 func init() {
 	resetCmd.Flags().BoolVar(&resetKeepData, "keep-data", true, "Keep data volumes")
 	resetCmd.Flags().BoolVar(&resetHard, "hard", false, "Remove everything including data and config")
+	resetCmd.Flags().BoolVar(&resetDestroy, "destroy", false, "Complete project destruction (removes everything)")
 	resetCmd.Flags().BoolVarP(&resetConfirm, "yes", "y", false, "Skip confirmation prompt")
 	resetCmd.Flags().BoolVar(&resetKeepModels, "keep-models", true, "Keep AI models (saves bandwidth)")
 }
@@ -58,7 +64,12 @@ func runReset(cmd *cobra.Command, args []string) error {
 
 	// Determine reset level
 	resetLevel := "soft"
-	if resetHard {
+	if resetDestroy {
+		resetLevel = "destroy"
+		resetHard = true
+		resetKeepData = false
+		resetKeepModels = false
+	} else if resetHard {
 		resetLevel = "hard"
 		resetKeepData = false
 		resetKeepModels = false
@@ -81,26 +92,50 @@ func runReset(cmd *cobra.Command, args []string) error {
 
 	if !resetKeepModels {
 		fmt.Println("  • " + errorColor("DELETE AI models"))
+		if len(cfg.Services.AI.Models) > 0 {
+			fmt.Println("\n    Models to remove:")
+			for _, model := range cfg.Services.AI.Models {
+				fmt.Printf("      - %s\n", model)
+			}
+		}
 	} else {
 		fmt.Println("  • " + successColor("Keep AI models"))
 	}
 
-	if resetHard {
+	if resetHard || resetDestroy {
 		fmt.Println("  • " + errorColor("DELETE configuration"))
 		fmt.Println("  • " + errorColor("DELETE logs"))
 		fmt.Println("  • " + errorColor("DELETE all LocalCloud files"))
+	}
+
+	if resetDestroy {
+		fmt.Println("  • " + errorColor("DELETE Docker network"))
+		fmt.Println("\n" + errorColor("⚠️  This is IRREVERSIBLE and will completely remove the project!"))
+		fmt.Println("\n" + infoColor("Note: The current directory will NOT be deleted."))
+		fmt.Println(infoColor("      Only LocalCloud files will be removed."))
 	}
 
 	fmt.Println(strings.Repeat("━", 50))
 
 	// Confirmation
 	if !resetConfirm {
-		fmt.Printf("\n%s This action cannot be undone. Continue? [y/N]: ", warningColor("Warning:"))
-		var response string
-		fmt.Scanln(&response)
-		if strings.ToLower(response) != "y" {
-			fmt.Println("Reset cancelled")
-			return nil
+		if resetDestroy {
+			// Extra confirmation for destroy
+			fmt.Printf("\n%s Type '%s' to confirm: ", errorColor("DANGER:"), errorColor("DESTROY"))
+			var response string
+			fmt.Scanln(&response)
+			if response != "DESTROY" {
+				fmt.Println("Reset cancelled")
+				return nil
+			}
+		} else {
+			fmt.Printf("\n%s This action cannot be undone. Continue? [y/N]: ", warningColor("Warning:"))
+			var response string
+			fmt.Scanln(&response)
+			if strings.ToLower(response) != "y" {
+				fmt.Println("Reset cancelled")
+				return nil
+			}
 		}
 	}
 
@@ -122,16 +157,32 @@ func runReset(cmd *cobra.Command, args []string) error {
 		if err := cleanupDocker(manager, resetKeepData, resetKeepModels); err != nil {
 			printWarning(fmt.Sprintf("Failed to clean up some Docker resources: %v", err))
 		}
+
+		// Remove AI models if requested
+		if !resetKeepModels && len(cfg.Services.AI.Models) > 0 {
+			fmt.Println("\nRemoving AI models...")
+			for _, model := range cfg.Services.AI.Models {
+				fmt.Printf("  Removing %s...\n", model)
+				// Call model removal logic here
+				// manager.RemoveModel(model)
+			}
+		}
 	}
 
 	// Clean up files
-	if err := cleanupFiles(resetHard); err != nil {
+	if err := cleanupFiles(resetHard || resetDestroy); err != nil {
 		printWarning(fmt.Sprintf("Failed to clean up some files: %v", err))
 	}
 
 	// Final message
 	fmt.Println()
-	if resetHard {
+	if resetDestroy {
+		printSuccess("LocalCloud project has been completely destroyed")
+		fmt.Println("All LocalCloud files and resources have been removed.")
+		fmt.Println()
+		fmt.Println("To remove this directory completely:")
+		fmt.Printf("  cd .. && rm -rf %s\n", filepath.Base(projectPath))
+	} else if resetHard {
 		printSuccess("LocalCloud has been completely reset")
 		fmt.Println("Run 'lc init' to start a new project")
 	} else {

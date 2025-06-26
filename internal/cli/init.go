@@ -102,15 +102,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 	fmt.Println("Next steps:")
 	if len(args) > 0 {
 		fmt.Printf("  1. cd %s\n", projectName)
-		fmt.Println("  2. localcloud start")
+		fmt.Println("  2. lc setup        # Configure components")
+		fmt.Println("  3. lc start        # Start services")
 	} else {
-		fmt.Println("  1. localcloud start")
+		fmt.Println("  1. lc setup        # Configure components")
+		fmt.Println("  2. lc start        # Start services")
 	}
 	fmt.Println()
-	fmt.Println("To use the interactive setup wizard:")
-	fmt.Println("  localcloud init --interactive")
-	fmt.Println()
-	fmt.Println("For more information, run: localcloud --help")
+	fmt.Println("For more information, run: lc --help")
 
 	return nil
 }
