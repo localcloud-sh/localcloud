@@ -16,7 +16,7 @@ Welcome! We're excited to have you contribute to LocalCloud. This guide will hel
 ### Prerequisites
 - Go 1.21 or later
 - Docker Desktop
-- Node.js 18+ (for frontend templates)
+- Node.js 18+ (for future frontend templates)
 - Make
 
 ### Getting Started
@@ -57,15 +57,17 @@ LocalCloud follows a modular architecture:
   /cli/                  # CLI command implementations
   /docker/               # Docker container management
   /config/               # Configuration management
-  /orchestrator/         # Service orchestration logic
+  /services/             # Service orchestration logic
   /models/               # AI model management
+  /templates/            # Template generator
 /pkg/                    # Public APIs and shared code
-  /api/                  # REST API definitions
+  /api/                  # REST API definitions  
   /types/                # Shared type definitions
-/templates/              # Application templates
-  /chat/                 # Chat interface template
-  /rag/                  # RAG system template
-  /api/                  # API endpoint template
+/scripts/                # Build and installation scripts
+  /build.sh              # Multi-platform build script
+  /install.sh            # Installation script
+/.github/                # GitHub specific files
+  /workflows/            # GitHub Actions
 ```
 
 ### Key Design Principles
@@ -74,7 +76,7 @@ LocalCloud follows a modular architecture:
 2. **Offline First**: No internet required after initial setup
 3. **Resource Efficient**: Optimized for 4GB RAM laptops
 4. **Developer Experience**: Simple commands, clear errors
-5. **Extensible**: Easy to add new templates and models
+5. **Extensible**: Easy to add new services and models
 
 ## Making Changes
 
@@ -104,58 +106,48 @@ docs(readme): update installation instructions
 - `docs/description` - Documentation updates
 - `refactor/description` - Code refactoring
 
-## Adding Templates
+## Adding New Services
 
-Templates are the core of LocalCloud's value proposition. Here's how to add a new template:
+LocalCloud MVP focuses on infrastructure services. Here's how to add a new service:
 
-### Template Structure
+### Service Implementation
 
-```
-/templates/my-template/
-  /frontend/             # Next.js application
-  /backend/              # Optional backend service
-  /docker/               # Docker configurations
-  template.yaml          # Template configuration
-  README.md              # Template documentation
-```
+```go
+// internal/services/myservice/service.go
+type MyService struct {
+    config *config.ServiceConfig
+}
 
-### Template Configuration
+func (s *MyService) Start() error {
+    // Implementation
+}
 
-```yaml
-# template.yaml
-name: "my-template"
-description: "Description of what this template does"
-version: "1.0.0"
-author: "Your Name"
-category: "chat|rag|api|utility"
+func (s *MyService) Stop() error {
+    // Implementation
+}
 
-requirements:
-  models:
-    - name: "qwen2.5:3b"
-      required: true
-  ports:
-    - 3000
-    - 8080
-  memory: "2GB"
-
-services:
-  frontend:
-    type: "nextjs"
-    path: "./frontend"
-    port: 3000
-  backend:
-    type: "docker"
-    path: "./docker/backend.dockerfile"
-    port: 8080
+func (s *MyService) HealthCheck() error {
+    // Implementation
+}
 ```
 
-### Template Development Guide
+### Service Configuration
 
-1. **Start with existing template**: Copy the closest existing template
-2. **Update template.yaml**: Configure your template's requirements
-3. **Develop frontend**: Use Next.js 14 with App Router
-4. **Test thoroughly**: Ensure it works on different systems
-5. **Document**: Write clear README with usage examples
+Add to the setup wizard in `internal/cli/setup.go`:
+
+```go
+{
+    Type:        "myservice",
+    Name:        "My Service", 
+    Description: "Description of what it does",
+    Category:    "AI|Database|Infrastructure",
+    Default:     false,
+}
+```
+
+### Docker Image
+
+If your service needs a custom image, add it to the docker management layer.
 
 ## Testing
 
@@ -176,7 +168,7 @@ make test-coverage
 
 1. **Unit Tests**: Test individual functions and methods
 2. **Integration Tests**: Test component interactions
-3. **Template Tests**: Verify templates work end-to-end
+3. **Service Tests**: Verify services start/stop correctly
 4. **CLI Tests**: Test command-line interface
 
 ### Writing Tests
@@ -200,18 +192,41 @@ make test-coverage
    make test
    make build
    # Test the built binary
+   ./dist/localcloud --version
    ```
 
 4. **Create Pull Request**
    - Use descriptive title and description
    - Reference any related issues
-   - Include screenshots for UI changes
+   - Include examples of the feature in action
    - Ensure CI passes
 
 5. **Code Review**
    - Address reviewer feedback
    - Keep discussions respectful and constructive
    - Update documentation if needed
+
+## Release Process
+
+### For Maintainers
+
+1. **Prepare Release**
+   ```bash
+   # Update version in code
+   # Update CHANGELOG.md
+   git commit -m "chore: prepare v0.1.0 release"
+   ```
+
+2. **Tag Release**
+   ```bash
+   git tag -a v0.1.0 -m "Release v0.1.0"
+   git push origin v0.1.0
+   ```
+
+3. **Verify**
+   - GitHub Actions builds binaries
+   - Release is created automatically
+   - Homebrew tap is updated
 
 ## Community Guidelines
 
@@ -224,9 +239,9 @@ make test-coverage
 
 ### Getting Help
 
-- **Discord**: Join our development discussions
 - **GitHub Issues**: Report bugs or request features
 - **GitHub Discussions**: Ask questions or share ideas
+- **Discord**: Join our community (coming soon)
 
 ### Recognition
 
@@ -241,21 +256,47 @@ Contributors are recognized in:
 
 ```bash
 make build          # Build the binary
-make test           # Run all tests
+make test           # Run all tests  
 make lint           # Run linters
 make clean          # Clean build artifacts
 make install        # Install binary locally
-make dev            # Start development mode
-make docker-build   # Build Docker images for templates
+make release        # Build all platform binaries
 ```
 
-### Debugging
+### Project Structure Details
 
-- Use Go's built-in debugging tools
-- Add verbose logging with `--verbose` flag
-- Test with different AI models
-- Use Docker logs for container debugging
+```
+localcloud/
+├── cmd/localcloud/       # Main application entry
+│   └── main.go          # Entry point
+├── internal/            # Private packages
+│   ├── cli/            # Command implementations
+│   │   ├── root.go     # Root command
+│   │   ├── init.go     # Init command
+│   │   ├── setup.go    # Setup wizard
+│   │   ├── start.go    # Start services
+│   │   └── ...
+│   ├── docker/         # Docker management
+│   │   ├── client.go   # Docker client
+│   │   ├── container.go # Container operations
+│   │   └── manager.go  # Service orchestration
+│   └── config/         # Configuration
+│       ├── config.go   # Config structures
+│       └── loader.go   # Config loading
+├── scripts/            # Build & install scripts
+├── .github/            # GitHub Actions
+└── Makefile           # Build commands
+```
+
+### Debugging Tips
+
+- Use `lc --verbose` for detailed output
+- Check Docker logs: `lc logs [service]`
+- Inspect containers: `docker ps -a`
+- Check service health: `lc status`
 
 ---
 
-Thank you for contributing to LocalCloud! Together, we're making AI development accessible to everyone. 
+Thank you for contributing to LocalCloud! Together, we're making AI development accessible to everyone. 🚀
+
+**LocalCloud** - Ship AI Products Before Your Coffee Gets Cold

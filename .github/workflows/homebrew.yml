@@ -1,0 +1,17 @@
+name: Update Homebrew Formula
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  update-homebrew:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update Homebrew Formula
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          repository: localcloud/homebrew-tap
+          event-type: update-formula
+          client-payload: '{"version": "${{ github.event.release.tag_name }}"}'

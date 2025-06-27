@@ -7,7 +7,7 @@ connectivity:
     tunnel:
         provider: cloudflare
 project:
-    name: mino
+    name: aa
     type: custom
     components: []
 resources:

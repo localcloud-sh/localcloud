@@ -1,0 +1,33 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="terminal1" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#00FF00;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#00FFFF;stop-opacity:1" />
+        </linearGradient>
+    </defs>
+    
+    <!-- Terminal window -->
+    <rect x="50" y="60" width="100" height="80" rx="8" fill="#0a0a0a" stroke="#333" stroke-width="2"/>
+    
+    <!-- Terminal header -->
+    <rect x="50" y="60" width="100" height="20" rx="8" fill="#1a1a1a"/>
+    <circle cx="65" cy="70" r="3" fill="#FF5555"/>
+    <circle cx="75" cy="70" r="3" fill="#FFFF55"/>
+    <circle cx="85" cy="70" r="3" fill="#55FF55"/>
+    
+    <!-- Command prompt -->
+    <text x="60" y="100" font-family="monospace" font-size="14" fill="#00FF00">$</text>
+    <text x="75" y="100" font-family="monospace" font-size="14" fill="url(#terminal1)">lc start</text>
+    
+    <!-- Cursor blink -->
+    <rect x="130" y="88" width="8" height="14" fill="#00FF00">
+        <animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/>
+    </rect>
+    
+    <!-- Speed lines -->
+    <g stroke="#00FFFF" stroke-width="1" opacity="0.5">
+        <line x1="160" y1="90" x2="180" y2="90"/>
+        <line x1="160" y1="100" x2="175" y2="100"/>
+        <line x1="160" y1="110" x2="170" y2="110"/>
+    </g>
+</svg>
