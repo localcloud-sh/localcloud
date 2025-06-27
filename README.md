@@ -12,10 +12,66 @@
 
 ## 🚦 Quick Start
 
-```bash
-# Install LocalCloud
-curl -fsSL https://get.localcloud.ai | sh
+### Installation
 
+#### macOS
+
+**Apple Silicon (M1/M2/M3)**:
+```bash
+curl -L https://github.com/localcloud-sh/localcloud/releases/latest/download/localcloud-darwin-arm64.tar.gz | tar xz
+sudo install -m 755 localcloud-darwin-arm64 /usr/local/bin/localcloud
+sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
+```
+
+**Intel**:
+```bash
+curl -L https://github.com/localcloud-sh/localcloud/releases/latest/download/localcloud-darwin-amd64.tar.gz | tar xz
+sudo install -m 755 localcloud-darwin-amd64 /usr/local/bin/localcloud
+sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
+```
+
+#### Homebrew (Coming Soon)
+```bash
+# Will be available soon:
+# brew tap localcloud-sh/tap
+# brew install localcloud
+```
+
+#### Linux (Under Testing)
+<details>
+<summary>Show Linux installation (experimental)</summary>
+
+**AMD64**:
+```bash
+curl -L https://github.com/localcloud-sh/localcloud/releases/latest/download/localcloud-linux-amd64.tar.gz | tar xz
+sudo install -m 755 localcloud-linux-amd64 /usr/local/bin/localcloud
+sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
+```
+
+**ARM64**:
+```bash
+curl -L https://github.com/localcloud-sh/localcloud/releases/latest/download/localcloud-linux-arm64.tar.gz | tar xz
+sudo install -m 755 localcloud-linux-arm64 /usr/local/bin/localcloud
+sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
+```
+</details>
+
+#### Windows (Under Testing)
+<details>
+<summary>Show Windows installation (experimental)</summary>
+
+1. Download the latest release from [GitHub Releases](https://github.com/localcloud-sh/localcloud/releases)
+2. Extract `localcloud-windows-amd64.zip`
+3. Add the extracted folder to your system PATH
+4. Restart your terminal
+5. Use `localcloud` or `lc` commands
+
+**Note**: Windows support is experimental. WSL2 is recommended for better compatibility.
+</details>
+
+### Getting Started
+
+```bash
 # Initialize a new project
 lc init my-assistant
 cd my-assistant

@@ -1,0 +1,109 @@
+<svg width="1280" height="640" viewBox="0 0 1280 640" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <!-- Gradient background -->
+        <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#0a1628;stop-opacity:1" />
+            <stop offset="50%" style="stop-color:#1a2f4e;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#0066ff;stop-opacity:1" />
+        </linearGradient>
+
+        <!-- Text gradient -->
+        <linearGradient id="textGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#00ffaa;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#00ccff;stop-opacity:1" />
+        </linearGradient>
+
+        <!-- Glow filter -->
+        <filter id="glow">
+            <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+            <feMerge>
+                <feMergeNode in="coloredBlur"/>
+                <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+        </filter>
+    </defs>
+
+    <!-- Background with 40pt safe area -->
+    <rect width="1280" height="640" fill="url(#bgGradient)"/>
+
+    <!-- Grid pattern overlay -->
+    <defs>
+        <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
+            <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#ffffff" stroke-width="0.5" opacity="0.05"/>
+        </pattern>
+    </defs>
+    <rect width="1280" height="640" fill="url(#grid)"/>
+
+    <!-- Content area (respecting 40pt borders) -->
+    <g transform="translate(40, 40)">
+
+        <!-- Terminal window -->
+        <g transform="translate(60, 140)">
+            <rect x="0" y="0" width="380" height="240" rx="10" fill="#0a0a0a" stroke="#333" stroke-width="2" opacity="0.95"/>
+
+            <!-- Terminal header -->
+            <rect x="0" y="0" width="380" height="35" rx="10" fill="#1a1a1a"/>
+            <circle cx="20" cy="17.5" r="5" fill="#ff5f56"/>
+            <circle cx="40" cy="17.5" r="5" fill="#ffbd2e"/>
+            <circle cx="60" cy="17.5" r="5" fill="#27c93f"/>
+
+            <!-- Terminal content -->
+            <text x="20" y="70" font-family="'SF Mono', Monaco, monospace" font-size="20" fill="#00ff00">$</text>
+            <text x="40" y="70" font-family="'SF Mono', Monaco, monospace" font-size="20" fill="url(#textGradient)">lc init my-app</text>
+
+            <text x="20" y="100" font-family="'SF Mono', Monaco, monospace" font-size="18" fill="#888">✓ Project initialized</text>
+
+            <text x="20" y="140" font-family="'SF Mono', Monaco, monospace" font-size="20" fill="#00ff00">$</text>
+            <text x="40" y="140" font-family="'SF Mono', Monaco, monospace" font-size="20" fill="url(#textGradient)">lc start</text>
+
+            <text x="20" y="170" font-family="'SF Mono', Monaco, monospace" font-size="18" fill="#888">Starting LocalCloud...</text>
+            <text x="20" y="200" font-family="'SF Mono', Monaco, monospace" font-size="18" fill="#00ff88">✓ Ready in 3s!</text>
+
+            <!-- Blinking cursor -->
+            <rect x="140" y="185" width="12" height="20" fill="#00ff00">
+                <animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/>
+            </rect>
+        </g>
+
+        <!-- Logo and text -->
+        <g transform="translate(520, 140)">
+            <!-- Main title -->
+            <text x="0" y="50" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="64" font-weight="800" fill="white">LocalCloud</text>
+
+            <!-- Tagline -->
+            <text x="0" y="110" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="28" fill="#00ccff" opacity="0.9">Ship AI Products Before</text>
+            <text x="0" y="145" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="28" fill="#00ccff" opacity="0.9">Your Coffee Gets Cold ☕</text>
+
+            <!-- Features -->
+            <g transform="translate(0, 200)">
+                <rect x="0" y="0" width="180" height="40" rx="20" fill="#00ff88" opacity="0.2"/>
+                <text x="90" y="26" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="600" text-anchor="middle" fill="#00ff88">Zero Cloud Cost</text>
+
+                <rect x="200" y="0" width="160" height="40" rx="20" fill="#00ccff" opacity="0.2"/>
+                <text x="280" y="26" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="600" text-anchor="middle" fill="#00ccff">Local First</text>
+            </g>
+        </g>
+
+        <!-- GitHub info -->
+        <g transform="translate(60, 460)">
+            <text x="0" y="0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" fill="white" opacity="0.6">github.com/localcloud-sh/localcloud</text>
+
+            <!-- Call to action -->
+            <text x="0" y="35" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" fill="#ffd700">⭐ Star us on GitHub</text>
+        </g>
+
+        <!-- Tech stack icons/text -->
+        <g transform="translate(940, 460)">
+            <text x="0" y="0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" fill="white" opacity="0.5">Built with</text>
+            <text x="0" y="25" font-family="'SF Mono', Monaco, monospace" font-size="16" fill="#00ccff">Go • Docker • AI</text>
+        </g>
+
+    </g>
+
+    <!-- Speed lines effect -->
+    <g opacity="0.3">
+        <line x1="900" y1="200" x2="1100" y2="200" stroke="url(#textGradient)" stroke-width="2"/>
+        <line x1="920" y1="240" x2="1080" y2="240" stroke="url(#textGradient)" stroke-width="1.5"/>
+        <line x1="940" y1="280" x2="1060" y2="280" stroke="url(#textGradient)" stroke-width="1"/>
+    </g>
+</svg>
