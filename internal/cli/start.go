@@ -4,6 +4,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/localcloud/localcloud/internal/models"
 	"strings"
 
 	"github.com/briandowns/spinner"
@@ -316,18 +317,81 @@ func showConnectionInfo(cfg *config.Config) {
 	// Show model configuration
 	if len(cfg.Services.AI.Models) > 0 {
 		fmt.Printf("Models: %s\n", strings.Join(cfg.Services.AI.Models, ", "))
-		if cfg.Services.AI.Default != "" {
-			fmt.Printf("Default: %s\n", cfg.Services.AI.Default)
-		}
+	}
+	if cfg.Services.AI.Default != "" {
+		fmt.Printf("Default: %s\n", cfg.Services.AI.Default)
 	}
 
-	// Database URL if enabled
-	if cfg.Services.Database.Type != "" {
-		fmt.Printf("\nDatabase URL:\n")
+	// Database URL
+	if cfg.Services.Database.Type == "postgres" {
+		fmt.Println("Database URL:")
 		fmt.Printf("postgresql://localcloud:localcloud@localhost:%d/localcloud\n", cfg.Services.Database.Port)
 	}
 
+	// Show all configured services with their URLs
+	fmt.Println("\nActive Services:")
+
+	// AI Service - check if port is configured (meaning it's enabled)
+	if cfg.Services.AI.Port > 0 {
+		fmt.Printf("✓ AI Models (Ollama): http://localhost:%d\n", cfg.Services.AI.Port)
+		fmt.Printf("  - Chat API: http://localhost:%d/api/chat\n", cfg.Services.AI.Port)
+		fmt.Printf("  - Generate API: http://localhost:%d/api/generate\n", cfg.Services.AI.Port)
+		if len(cfg.Services.AI.Models) > 0 {
+			for _, model := range cfg.Services.AI.Models {
+				if models.IsEmbeddingModel(model) {
+					fmt.Printf("  - Embeddings API: http://localhost:%d/api/embeddings\n", cfg.Services.AI.Port)
+					break
+				}
+			}
+		}
+	}
+
+	// Database Service - check if type is configured
+	if cfg.Services.Database.Type != "" {
+		fmt.Printf("✓ PostgreSQL: postgresql://localhost:%d\n", cfg.Services.Database.Port)
+		if containsString(cfg.Services.Database.Extensions, "vector") {
+			fmt.Printf("  - pgvector extension enabled\n")
+		}
+	}
+
+	// Cache Service - check if type is configured
+	if cfg.Services.Cache.Type != "" {
+		fmt.Printf("✓ Redis Cache: redis://localhost:%d\n", cfg.Services.Cache.Port)
+	}
+
+	// Queue Service - check if type is configured
+	if cfg.Services.Queue.Type != "" {
+		fmt.Printf("✓ Redis Queue: redis://localhost:%d\n", cfg.Services.Queue.Port)
+		if cfg.Services.Queue.Port == cfg.Services.Cache.Port {
+			fmt.Printf("  - Shared with cache service\n")
+		}
+	}
+
+	// Storage Service - check if type is configured
+	if cfg.Services.Storage.Type != "" {
+		fmt.Printf("✓ MinIO Storage: http://localhost:%d\n", cfg.Services.Storage.Port)
+		fmt.Printf("  - Console: http://localhost:%d\n", cfg.Services.Storage.Console)
+	}
+
+	// Speech-to-Text Service - check if type is configured
+	if cfg.Services.Whisper.Type != "" {
+		fmt.Printf("✓ Speech-to-Text (Whisper): http://localhost:%d\n", cfg.Services.Whisper.Port)
+		if cfg.Services.Whisper.Model != "" {
+			fmt.Printf("  - Model: %s\n", cfg.Services.Whisper.Model)
+		}
+	}
+
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+}
+
+// Helper function to check if a string is in a slice
+func containsString(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
 
 // startTunnel starts the tunnel connection

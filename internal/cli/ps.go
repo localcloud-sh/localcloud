@@ -100,6 +100,9 @@ func runPs(cmd *cobra.Command, args []string) error {
 		// Get container ID (first 12 chars)
 		id := container.ID[:12]
 
+		// Format image with model info for AI service
+		image := formatImageWithModel(container, cfg)
+
 		// Format ports
 		ports := formatPorts(container.Ports)
 
@@ -116,7 +119,7 @@ func runPs(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t\n",
 			id,
 			name,
-			container.Image,
+			image,
 			status,
 			ports,
 		)
@@ -135,6 +138,27 @@ func runPs(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\n%d containers (%d running)\n", len(containers), runningCount)
 
 	return nil
+}
+
+// formatImageWithModel formats the image name, showing model for AI service
+func formatImageWithModel(container types.Container, cfg *config.Config) string {
+	// Get service name from labels
+	serviceName := container.Labels["localcloud.service"]
+
+	// For AI/Ollama service, show the model if configured
+	if serviceName == "ai" || serviceName == "ollama" {
+		// Check if we have model configuration
+		if cfg.Services.AI.Default != "" {
+			return fmt.Sprintf("ollama/ollama (%s)", cfg.Services.AI.Default)
+		} else if len(cfg.Services.AI.Models) > 0 {
+			return fmt.Sprintf("ollama/ollama (%s)", cfg.Services.AI.Models[0])
+		}
+		// If no model configured, just return the original image
+		// This way we see what's actually running
+	}
+
+	// For all other cases, return as-is
+	return container.Image
 }
 
 // formatPorts formats container ports for display
