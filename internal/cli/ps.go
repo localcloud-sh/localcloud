@@ -4,16 +4,14 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
-	"text/tabwriter"
-	"time"
-
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/localcloud/localcloud/internal/config"
 	"github.com/spf13/cobra"
+	"os"
+	"strings"
+	"text/tabwriter"
 )
 
 var (
@@ -184,19 +182,4 @@ func formatPorts(ports []types.Port) string {
 	}
 
 	return strings.Join(portStrs, ", ")
-}
-
-// Helper to format time duration
-func formatDuration(d time.Duration) string {
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	}
-	if d < time.Hour {
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	}
-	if d < 24*time.Hour {
-		return fmt.Sprintf("%dh", int(d.Hours()))
-	}
-	days := int(d.Hours() / 24)
-	return fmt.Sprintf("%dd", days)
 }

@@ -877,18 +877,27 @@ func showProjectSummary(projectName string, componentIDs []string, models map[st
 // downloadModel downloads a model using the manager
 func downloadModel(manager *models.Manager, modelName string) error {
 	// Create progress channel
-	progress := make(chan models.PullProgress)
-	done := make(chan error)
+	progress := make(chan models.PullProgress, 100) // Buffered channel
+	done := make(chan error, 1)
+
+	// Start time tracking
+	startTime := time.Now()
+	lastProgressTime := time.Now()
+	var lastCompleted int64
 
 	// Start pull in goroutine
 	go func() {
 		done <- manager.Pull(modelName, progress)
 	}()
 
-	// Create spinner
+	// Create spinner for initial state
 	s := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
-	s.Suffix = fmt.Sprintf(" Downloading %s...", modelName)
+	s.Suffix = fmt.Sprintf(" Connecting to download %s...", modelName)
 	s.Start()
+
+	// Track download phases
+	var currentPhase string
+	progressStarted := false
 
 	// Handle progress updates
 	for {
@@ -898,31 +907,116 @@ func downloadModel(manager *models.Manager, modelName string) error {
 				// Channel closed, wait for final result
 				continue
 			}
-			s.Stop()
-			if p.Total > 0 {
-				percentage := int((p.Completed * 100) / p.Total)
-				bar := progressBar(percentage, 30)
-				fmt.Printf("\r%s: %d%% [%s] %s/%s",
-					p.Status,
-					percentage,
-					bar,
-					FormatBytes(p.Completed),
-					FormatBytes(p.Total))
-			} else {
+
+			// Stop spinner once we have progress
+			if !progressStarted {
+				s.Stop()
+				progressStarted = true
+			}
+
+			// Update phase tracking
+			if p.Status != currentPhase {
+				currentPhase = p.Status
+				// Clear line for phase changes
+				fmt.Printf("\r%s\r", strings.Repeat(" ", 80))
+			}
+
+			// Calculate download speed
+			elapsed := time.Since(lastProgressTime).Seconds()
+			if elapsed > 0 && p.Completed > lastCompleted {
+				speed := float64(p.Completed-lastCompleted) / elapsed
+				lastCompleted = p.Completed
+				lastProgressTime = time.Now()
+
+				if p.Total > 0 {
+					percentage := int((p.Completed * 100) / p.Total)
+					bar := progressBar(percentage, 30)
+
+					// Calculate ETA
+					if speed > 0 {
+						remaining := p.Total - p.Completed
+						eta := time.Duration(float64(remaining)/speed) * time.Second
+
+						fmt.Printf("\r%s: %d%% [%s] %s/%s @ %s/s - ETA: %s",
+							p.Status,
+							percentage,
+							bar,
+							FormatBytes(p.Completed),
+							FormatBytes(p.Total),
+							FormatBytes(int64(speed)),
+							formatDuration(eta))
+					} else {
+						fmt.Printf("\r%s: %d%% [%s] %s/%s",
+							p.Status,
+							percentage,
+							bar,
+							FormatBytes(p.Completed),
+							FormatBytes(p.Total))
+					}
+				} else {
+					// No total size known yet
+					fmt.Printf("\r%s: %s downloaded @ %s/s",
+						p.Status,
+						FormatBytes(p.Completed),
+						FormatBytes(int64(speed)))
+				}
+			} else if p.Status != "" {
+				// Status update without progress
 				fmt.Printf("\r%s: %s", p.Status, p.Digest)
 			}
-			s.Start()
 
 		case err := <-done:
-			s.Stop()
-			fmt.Println() // New line after progress
+			if progressStarted {
+				fmt.Println() // New line after progress
+			} else {
+				s.Stop()
+			}
+
 			if err != nil {
+				// Check if it's a timeout error
+				if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "deadline") {
+					return fmt.Errorf("download timed out - this might be due to slow connection. Try again or download manually with 'lc models pull %s'", modelName)
+				}
 				return err
 			}
-			fmt.Printf("%s Model %s downloaded successfully!\n", successColor("✓"), modelName)
+
+			// Calculate total time and average speed
+			totalTime := time.Since(startTime)
+			if lastCompleted > 0 {
+				avgSpeed := float64(lastCompleted) / totalTime.Seconds()
+				fmt.Printf("%s Model %s downloaded successfully! (%s @ avg %s/s)\n",
+					successColor("✓"),
+					modelName,
+					formatDuration(totalTime),
+					FormatBytes(int64(avgSpeed)))
+			} else {
+				fmt.Printf("%s Model %s downloaded successfully!\n", successColor("✓"), modelName)
+			}
+
 			return nil
+
+		case <-time.After(30 * time.Second):
+			// Timeout check - if no progress for 30 seconds, show a message
+			if !progressStarted {
+				s.Stop()
+				fmt.Printf("\rStill waiting for download to start... (this is normal for large models)\n")
+				s.Start()
+			}
 		}
 	}
+}
+
+// formatDuration formats a duration in human-readable format
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	hours := int(d.Hours())
+	minutes := int(d.Minutes()) % 60
+	return fmt.Sprintf("%dh %dm", hours, minutes)
 }
 
 // Helper functions for resource checking

@@ -44,20 +44,6 @@ type Manager struct {
 	httpClient     *http.Client
 }
 
-// NewManager creates a new model manager
-func NewManager(ollamaEndpoint string) *Manager {
-	if ollamaEndpoint == "" {
-		ollamaEndpoint = "http://localhost:11434"
-	}
-
-	return &Manager{
-		ollamaEndpoint: ollamaEndpoint,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
-	}
-}
-
 // DetectProvider detects which AI provider is available
 func (m *Manager) DetectProvider() Provider {
 	// Check for OpenAI API key first
@@ -70,6 +56,124 @@ func (m *Manager) DetectProvider() Provider {
 		return ProviderOllama
 	}
 
+	return ""
+}
+
+// internal/models/manager.go - Updated NewManager and Pull functions
+
+// NewManager creates a new model manager
+func NewManager(ollamaEndpoint string) *Manager {
+	if ollamaEndpoint == "" {
+		ollamaEndpoint = "http://localhost:11434"
+	}
+
+	return &Manager{
+		ollamaEndpoint: ollamaEndpoint,
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second, // This is only for non-streaming requests
+		},
+	}
+}
+
+// Pull downloads a model with progress updates
+func (m *Manager) Pull(modelName string, progress chan<- PullProgress) error {
+	defer close(progress)
+
+	// Prepare request
+	payload := map[string]string{
+		"name": modelName,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", m.ollamaEndpoint+"/api/pull", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	// Create a custom client without timeout for streaming
+	// The pull operation can take a long time for large models
+	client := &http.Client{
+		Timeout: 0, // No timeout for streaming responses
+	}
+
+	// Make request
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to connect to Ollama: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to pull model: %s", string(body))
+	}
+
+	// Stream progress updates with a deadline for each read
+	decoder := json.NewDecoder(resp.Body)
+	lastUpdate := time.Now()
+
+	for {
+		var update map[string]interface{}
+
+		// Set a read deadline for the decoder to prevent hanging
+		if err := decoder.Decode(&update); err != nil {
+			if err == io.EOF {
+				break
+			}
+
+			// Check if we haven't received updates for too long
+			if time.Since(lastUpdate) > 5*time.Minute {
+				return fmt.Errorf("no progress update received for 5 minutes, connection might be stalled")
+			}
+
+			return err
+		}
+
+		lastUpdate = time.Now()
+
+		// Convert to PullProgress
+		p := PullProgress{
+			Status: getString(update, "status"),
+			Digest: getString(update, "digest"),
+		}
+
+		if total, ok := update["total"].(float64); ok {
+			p.Total = int64(total)
+		}
+
+		if completed, ok := update["completed"].(float64); ok {
+			p.Completed = int64(completed)
+			if p.Total > 0 {
+				p.Percentage = int((p.Completed * 100) / p.Total)
+			}
+		}
+
+		// Send progress update
+		select {
+		case progress <- p:
+			// Progress sent successfully
+		case <-time.After(10 * time.Second):
+			// If we can't send progress for 10 seconds, something might be wrong
+			return fmt.Errorf("progress channel blocked, aborting download")
+		}
+	}
+
+	return nil
+}
+
+// Helper function to safely get string from map
+func getString(m map[string]interface{}, key string) string {
+	if val, ok := m[key]; ok {
+		if str, ok := val.(string); ok {
+			return str
+		}
+	}
 	return ""
 }
 
@@ -105,81 +209,6 @@ func (m *Manager) List() ([]Model, error) {
 	}
 
 	return result.Models, nil
-}
-
-// Pull downloads a model with progress updates
-func (m *Manager) Pull(modelName string, progress chan<- PullProgress) error {
-	defer close(progress)
-
-	// Prepare request
-	payload := map[string]string{
-		"name": modelName,
-	}
-
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest("POST", m.ollamaEndpoint+"/api/pull", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	// Make request
-	resp, err := m.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to connect to Ollama: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to pull model: %s", string(body))
-	}
-
-	// Stream progress updates
-	decoder := json.NewDecoder(resp.Body)
-	for {
-		var update map[string]interface{}
-		if err := decoder.Decode(&update); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return err
-		}
-
-		// Convert to PullProgress
-		p := PullProgress{
-			Status: getString(update, "status"),
-		}
-
-		if total, ok := update["total"].(float64); ok {
-			p.Total = int64(total)
-		}
-
-		if completed, ok := update["completed"].(float64); ok {
-			p.Completed = int64(completed)
-			if p.Total > 0 {
-				p.Percentage = int((p.Completed * 100) / p.Total)
-			}
-		}
-
-		if digest, ok := update["digest"].(string); ok {
-			p.Digest = digest
-		}
-
-		// Send progress update
-		select {
-		case progress <- p:
-		case <-time.After(100 * time.Millisecond):
-			// Don't block if receiver is slow
-		}
-	}
-
-	return nil
 }
 
 // Remove deletes a model
@@ -282,12 +311,4 @@ func GetRecommendedModels() []struct {
 			Description: "Google's lightweight open model",
 		},
 	}
-}
-
-// Helper function
-func getString(m map[string]interface{}, key string) string {
-	if val, ok := m[key].(string); ok {
-		return val
-	}
-	return ""
 }
