@@ -134,7 +134,7 @@ func selectComponents(projectType string) ([]string, error) {
 
 	// Component display order within categories
 	componentOrder := map[string][]string{
-		"ai":             {"llm", "embedding", "stt"},
+		"ai":             {"llm", "embedding"}, //removed stt first
 		"database":       {"vector"},
 		"infrastructure": {"cache", "queue", "storage"},
 	}

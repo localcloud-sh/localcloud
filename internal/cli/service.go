@@ -206,9 +206,9 @@ func getServiceTypeAndModel(serviceName string, cfg *config.Config) (serviceType
 		}
 	case "redis":
 		serviceType = "cache"
-	case "speech-to-text", "whisper":
-		serviceType = "whisper"
-		model = "base" // or get from config
+	//case "speech-to-text", "whisper":
+	//	serviceType = "whisper"
+	//	model = "base" // or get from config
 	case "text-to-speech", "tts", "piper":
 		serviceType = "piper"
 		model = "en_US-amy" // or get from config
@@ -724,9 +724,9 @@ func resolveServiceName(serviceManager *services.ServiceManager, inputName strin
 		"minio":   "minio",
 
 		// Speech-to-text aliases
-		"whisper":        "whisper",
-		"stt":            "whisper",
-		"speech-to-text": "whisper",
+		//"whisper":        "whisper",
+		//"stt":            "whisper",
+		//"speech-to-text": "whisper",
 
 		// Text-to-speech aliases
 		"tts":            "piper",

@@ -327,8 +327,8 @@ func (sm *ServiceManager) componentsToServices(componentIDs []string) []string {
 			serviceMap["queue"] = true
 		case "storage":
 			serviceMap["minio"] = true
-		case "stt":
-			serviceMap["whisper"] = true
+			//case "stt":
+			//	serviceMap["whisper"] = true
 		}
 	}
 

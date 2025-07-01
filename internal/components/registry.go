@@ -64,19 +64,19 @@ var Registry = map[string]Component{
 		},
 		MinRAM: 2 * GB,
 	},
-	"stt": {
-		ID:          "stt",
-		Name:        "Speech-to-Text (Whisper)",
-		Description: "Convert speech to text using Whisper models",
-		Category:    "ai",
-		Services:    []string{"whisper"},
-		Models: []ModelOption{
-			{Name: "whisper-tiny", Size: "39MB", RAM: 1 * GB},
-			{Name: "whisper-base", Size: "74MB", RAM: 1 * GB, Default: true},
-			{Name: "whisper-small", Size: "244MB", RAM: 2 * GB},
-		},
-		MinRAM: 1 * GB,
-	},
+	//"stt": {
+	//	ID:          "stt",
+	//	Name:        "Speech-to-Text (Whisper)",
+	//	Description: "Convert speech to text using Whisper models",
+	//	Category:    "ai",
+	//	Services:    []string{"whisper"},
+	//	Models: []ModelOption{
+	//		{Name: "whisper-tiny", Size: "39MB", RAM: 1 * GB},
+	//		{Name: "whisper-base", Size: "74MB", RAM: 1 * GB, Default: true},
+	//		{Name: "whisper-small", Size: "244MB", RAM: 2 * GB},
+	//	},
+	//	MinRAM: 1 * GB,
+	//},
 	"vector": {
 		ID:          "vector",
 		Name:        "Vector Database (pgvector)",
@@ -126,11 +126,11 @@ var ProjectTemplates = map[string]ProjectTemplate{
 		Description: "Create conversational AI interfaces",
 		Components:  []string{"llm", "cache"},
 	},
-	"voice": {
-		Name:        "Voice Assistant",
-		Description: "Build voice-enabled AI applications",
-		Components:  []string{"llm", "stt", "cache"},
-	},
+	//"voice": {
+	//	Name:        "Voice Assistant",
+	//	Description: "Build voice-enabled AI applications",
+	//	Components:  []string{"llm", "stt", "cache"},
+	//},
 	"api": {
 		Name:        "API Service",
 		Description: "AI-powered REST API backend",

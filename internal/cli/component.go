@@ -398,9 +398,9 @@ func getEnabledComponents(cfg *config.Config) []string {
 	}
 
 	// Check STT/Whisper - only if type is set
-	if cfg.Services.Whisper.Type != "" && cfg.Services.Whisper.Port > 0 {
-		components = appendUnique(components, "stt")
-	}
+	//if cfg.Services.Whisper.Type != "" && cfg.Services.Whisper.Port > 0 {
+	//	components = appendUnique(components, "stt")
+	//}
 
 	return components
 }
@@ -435,11 +435,11 @@ func enableComponent(cfg *config.Config, comp components.Component) error {
 		v.Set("services.storage.port", 9000)
 		v.Set("services.storage.console", 9001)
 
-	case "stt":
-		// Enable Whisper service
-		v.Set("services.whisper.type", "localllama")
-		v.Set("services.whisper.port", 9000)
-		// Model will be set during init process
+		//case "stt":
+		//	// Enable Whisper service
+		//	v.Set("services.whisper.type", "localllama")
+		//	v.Set("services.whisper.port", 9000)
+		//	// Model will be set during init process
 	}
 
 	return nil

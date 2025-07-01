@@ -175,9 +175,14 @@ func runStart(cmd *cobra.Command, args []string) error {
 				if spin != nil {
 					spin.Stop()
 				}
-				printError(fmt.Sprintf("%s failed: %s", p.Service, p.Error))
+				// Fix: Check if p.Error is empty before using it
+				errorMsg := p.Error
+				if errorMsg == "" {
+					errorMsg = "unknown error"
+				}
+				printError(fmt.Sprintf("%s failed: %s", p.Service, errorMsg))
 				if verbose {
-					fmt.Printf("DEBUG: Full error for %s: %v\n", p.Service, p.Error)
+					fmt.Printf("DEBUG: Full error for %s: %s\n", p.Service, errorMsg)
 				}
 				if spin != nil && !verbose {
 					spin.Start()
@@ -344,10 +349,10 @@ func showStartedServicesInfo(cfg *config.Config, startedServices map[string]bool
 			fmt.Println("  Credentials: see ~/.localcloud/minio-credentials")
 			fmt.Println()
 
-		case "stt":
-			// Whisper info
-			fmt.Printf("✓ Speech-to-Text (Whisper)\n")
-			fmt.Printf("  URL: http://localhost:%d\n", cfg.Services.Whisper.Port)
+			//case "stt":
+			//	// Whisper info
+			//	fmt.Printf("✓ Speech-to-Text (Whisper)\n")
+			//	fmt.Printf("  URL: http://localhost:%d\n", cfg.Services.Whisper.Port)
 		}
 	}
 }
