@@ -1,17 +1,21 @@
-// internal/cli/logs.go - Enhanced version with centralized logging
+// internal/cli/logs.go
 package cli
 
 import (
+	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/client"
 	"github.com/localcloud/localcloud/internal/config"
-	"github.com/localcloud/localcloud/internal/logging"
 	"github.com/spf13/cobra"
 )
 
@@ -27,29 +31,21 @@ var (
 var logsCmd = &cobra.Command{
 	Use:   "logs [service]",
 	Short: "Show logs from LocalCloud services",
-	Long: `Display logs from LocalCloud services with advanced filtering options.
-	
-Logs are collected centrally and can be filtered by service, time, level, and search terms.
-All logs are stored in JSON format for easy parsing and analysis.`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runLogs,
-	Example: `  localcloud logs                      # Show all logs
-  localcloud logs ai                    # Show AI service logs
-  localcloud logs -f                    # Follow log output
-  localcloud logs -n 50                 # Show last 50 lines
-  localcloud logs --since 1h            # Show logs from last hour
-  localcloud logs --level error         # Show only errors
-  localcloud logs --json                # Output as JSON
-  localcloud logs --search "model"      # Search for specific term`,
+	Long:  `Display logs from LocalCloud services with filtering options.`,
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runLogs,
+	Example: `  lc logs                    # Show all logs
+  lc logs ai                  # Show AI service logs
+  lc logs -f                  # Follow log output
+  lc logs -n 50               # Show last 50 lines
+  lc logs --since 1h          # Show logs from last hour`,
 }
 
 func init() {
 	logsCmd.Flags().BoolVarP(&followLogs, "follow", "f", false, "Follow log output")
 	logsCmd.Flags().IntVarP(&tailLines, "tail", "n", 100, "Number of lines to show from the end")
-	logsCmd.Flags().StringVar(&sinceTime, "since", "", "Show logs since timestamp (e.g., 1h, 30m, 2006-01-02T15:04:05)")
-	logsCmd.Flags().StringVar(&logLevel, "level", "", "Minimum log level to show (debug, info, warn, error)")
+	logsCmd.Flags().StringVar(&sinceTime, "since", "", "Show logs since timestamp (e.g., 1h, 30m)")
 	logsCmd.Flags().StringVar(&outputFormat, "output", "text", "Output format (text, json)")
-	logsCmd.Flags().StringVar(&searchTerm, "search", "", "Search logs for specific term")
 }
 
 func runLogs(cmd *cobra.Command, args []string) error {
@@ -64,182 +60,237 @@ func runLogs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load configuration")
 	}
 
-	// Create log aggregator
-	aggregator, err := logging.NewAggregator(cfg)
+	// Create Docker client
+	ctx := context.Background()
+	cli, err := client.NewClientWithOpts(
+		client.FromEnv,
+		client.WithAPIVersionNegotiation(),
+	)
 	if err != nil {
-		return fmt.Errorf("failed to create log aggregator: %w", err)
+		return fmt.Errorf("failed to create Docker client: %w", err)
+	}
+	defer cli.Close()
+
+	// Test Docker connection
+	_, err = cli.Ping(ctx)
+	if err != nil {
+		return fmt.Errorf("Docker is not running. Please start Docker Desktop")
 	}
 
-	// Parse since time
-	var sinceTimestamp time.Time
-	if sinceTime != "" {
-		sinceTimestamp, err = parseSinceTime(sinceTime)
-		if err != nil {
-			return fmt.Errorf("invalid since time: %w", err)
+	// Get service name if specified
+	var serviceName string
+	if len(args) > 0 {
+		serviceName = args[0]
+		// Map aliases
+		switch serviceName {
+		case "database":
+			serviceName = "postgres"
+		case "cache":
+			serviceName = "redis"
+		case "storage":
+			serviceName = "minio"
 		}
 	}
 
-	// Build log options
-	options := logging.LogOptions{
-		Tail:   tailLines,
-		Since:  sinceTimestamp,
-		Follow: followLogs,
-		Level:  logLevel,
-		Search: searchTerm,
+	// List containers with LocalCloud label
+	filterArgs := filters.NewArgs()
+	filterArgs.Add("label", fmt.Sprintf("com.localcloud.project=%s", cfg.Project.Name))
+
+	containers, err := cli.ContainerList(ctx, types.ContainerListOptions{
+		All:     false, // Only running containers
+		Filters: filterArgs,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list containers: %w", err)
+	}
+
+	if len(containers) == 0 {
+		fmt.Println("No running LocalCloud containers found")
+		return nil
 	}
 
 	// Filter by service if specified
-	if len(args) > 0 {
-		options.Service = args[0]
-		// Validate service name
-		validServices := []string{"ai", "postgres", "redis", "minio", "database", "cache", "storage"}
-		isValid := false
-		for _, s := range validServices {
-			if s == options.Service {
-				isValid = true
-				break
-			}
-		}
-		if !isValid {
-			return fmt.Errorf("unknown service '%s'. Available services: %s",
-				options.Service, strings.Join(validServices, ", "))
+	var targetContainers []types.Container
+	for _, container := range containers {
+		// Get service name from labels
+		service := container.Labels["com.localcloud.service"]
+		if service == "" {
+			// Try to extract from container name
+			service = extractServiceFromContainerName(container.Names[0])
 		}
 
-		// Map aliases
-		switch options.Service {
-		case "database":
-			options.Service = "postgres"
-		case "cache":
-			options.Service = "redis"
-		case "storage":
-			options.Service = "minio"
+		if serviceName == "" || service == serviceName {
+			targetContainers = append(targetContainers, container)
 		}
 	}
 
-	// Start log aggregation
-	ctx := context.Background()
-	if err := aggregator.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start log aggregation: %w", err)
+	if len(targetContainers) == 0 {
+		if serviceName != "" {
+			return fmt.Errorf("no containers found for service: %s", serviceName)
+		}
+		return fmt.Errorf("no containers found")
 	}
-	defer aggregator.Stop()
 
-	// Show header if not following
+	// Show header
 	if !followLogs && outputFormat == "text" {
-		if options.Service != "" {
-			fmt.Printf("Showing logs for %s service", options.Service)
+		if serviceName != "" {
+			fmt.Printf("Showing logs for %s service", serviceName)
 		} else {
 			fmt.Printf("Showing logs for all services")
 		}
-
 		if tailLines > 0 && !followLogs {
 			fmt.Printf(" (last %d lines)", tailLines)
 		}
-		if sinceTime != "" {
-			fmt.Printf(" since %s", sinceTime)
-		}
 		fmt.Println(":")
 		fmt.Println(strings.Repeat("─", 80))
+		fmt.Println()
 	}
 
-	// Create output channel
-	output := make(chan logging.LogEntry, 100)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	// Handle interrupt
-	go func() {
+	// Setup signal handling for graceful exit
+	if followLogs {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt)
-		<-sigChan
-		cancel()
-	}()
+		go func() {
+			<-sigChan
+			fmt.Println("\nStopping log stream...")
+			os.Exit(0)
+		}()
+	}
 
-	// Start streaming logs
-	go func() {
-		if err := aggregator.StreamLogs(ctx, options, output); err != nil && err != context.Canceled {
-			fmt.Printf("Error streaming logs: %v\n", err)
+	// Get logs from each container
+	for _, container := range targetContainers {
+		service := container.Labels["com.localcloud.service"]
+		if service == "" {
+			service = extractServiceFromContainerName(container.Names[0])
 		}
-		close(output)
-	}()
 
-	// Display logs
-	for entry := range output {
-		if outputFormat == "json" {
-			data, _ := json.Marshal(entry)
-			fmt.Println(string(data))
+		// Show service header if multiple containers
+		if len(targetContainers) > 1 && !followLogs {
+			fmt.Printf("\n=== %s ===\n", service)
+		}
+
+		// Get container logs
+		options := types.ContainerLogsOptions{
+			ShowStdout: true,
+			ShowStderr: true,
+			Follow:     followLogs,
+			Timestamps: true,
+			Tail:       fmt.Sprintf("%d", tailLines),
+		}
+
+		// Parse since time if provided
+		if sinceTime != "" {
+			if since, err := parseSinceTime(sinceTime); err == nil {
+				options.Since = since.Format(time.RFC3339)
+			}
+		}
+
+		reader, err := cli.ContainerLogs(ctx, container.ID, options)
+		if err != nil {
+			fmt.Printf("Error getting logs for %s: %v\n", service, err)
+			continue
+		}
+
+		// Stream logs
+		if followLogs {
+			// For following, prefix each line with service name
+			go func(svc string, r io.ReadCloser) {
+				defer r.Close()
+				scanner := bufio.NewScanner(r)
+				for scanner.Scan() {
+					line := scanner.Text()
+					fmt.Printf("[%s] %s\n", svc, line)
+				}
+			}(service, reader)
 		} else {
-			formatLogEntry(entry)
+			// For non-following, process the stream properly
+			buf := make([]byte, 8)
+			for {
+				// Read header
+				_, err := reader.Read(buf)
+				if err != nil {
+					if err != io.EOF {
+						fmt.Printf("Error reading logs: %v\n", err)
+					}
+					break
+				}
+
+				// Parse header to get size
+				size := binary.BigEndian.Uint32(buf[4:8])
+				if size == 0 {
+					continue
+				}
+
+				// Read the actual log line
+				line := make([]byte, size)
+				_, err = reader.Read(line)
+				if err != nil {
+					break
+				}
+
+				// Print the log line
+				fmt.Print(string(line))
+			}
+			reader.Close()
 		}
+	}
+
+	// Keep main thread alive if following
+	if followLogs {
+		select {}
 	}
 
 	return nil
 }
 
-// formatLogEntry formats a log entry for display
-func formatLogEntry(entry logging.LogEntry) {
-	// Color codes for levels
-	levelColors := map[logging.LogLevel]string{
-		logging.LogLevelDebug: "\033[36m", // Cyan
-		logging.LogLevelInfo:  "\033[37m", // White
-		logging.LogLevelWarn:  "\033[33m", // Yellow
-		logging.LogLevelError: "\033[31m", // Red
-	}
+// Helper function to extract service name from container name
+func extractServiceFromContainerName(containerName string) string {
+	// Container names are like: /localcloud-ai, /localcloud-postgres, /localcloud-redis
+	name := strings.TrimPrefix(containerName, "/")
+	parts := strings.Split(name, "-")
 
-	resetColor := "\033[0m"
-
-	// Format timestamp
-	timestamp := entry.Timestamp.Format("2006-01-02 15:04:05")
-
-	// Format level with color
-	level := string(entry.Level)
-	if color, ok := levelColors[entry.Level]; ok {
-		level = fmt.Sprintf("%s%-5s%s", color, strings.ToUpper(level), resetColor)
-	} else {
-		level = fmt.Sprintf("%-5s", strings.ToUpper(level))
-	}
-
-	// Format service name
-	service := fmt.Sprintf("[%-10s]", entry.Service)
-
-	// Build output line
-	fmt.Printf("%s %s %s %s", timestamp, level, service, entry.Message)
-
-	// Add metadata if present
-	if len(entry.Metadata) > 0 {
-		metadataStr := []string{}
-		for k, v := range entry.Metadata {
-			metadataStr = append(metadataStr, fmt.Sprintf("%s=%v", k, v))
+	if len(parts) >= 2 {
+		service := parts[1]
+		// Map container name parts to service names
+		switch service {
+		case "ai", "ollama":
+			return "ai"
+		case "postgres", "postgresql":
+			return "postgres"
+		case "redis":
+			// Could be cache or queue, check full name
+			if len(parts) >= 3 && parts[2] == "queue" {
+				return "queue"
+			}
+			return "cache"
+		case "minio":
+			return "storage"
 		}
-		fmt.Printf(" {%s}", strings.Join(metadataStr, " "))
+		return service
 	}
 
-	fmt.Println()
+	return "unknown"
 }
 
-// parseSinceTime parses various time formats
+// parseSinceTime parses a relative time string (1h, 30m, etc.) or absolute timestamp
 func parseSinceTime(since string) (time.Time, error) {
-	// Try parsing as duration (e.g., "1h", "30m")
-	if strings.HasSuffix(since, "h") || strings.HasSuffix(since, "m") || strings.HasSuffix(since, "s") {
-		duration, err := time.ParseDuration(since)
-		if err == nil {
-			return time.Now().Add(-duration), nil
-		}
+	// Try parsing as duration first (1h, 30m, etc.)
+	if duration, err := time.ParseDuration(since); err == nil {
+		return time.Now().Add(-duration), nil
 	}
 
-	// Try parsing as RFC3339
+	// Try parsing as absolute time
 	if t, err := time.Parse(time.RFC3339, since); err == nil {
 		return t, nil
 	}
 
-	// Try parsing as date
-	if t, err := time.Parse("2006-01-02", since); err == nil {
-		return t, nil
-	}
-
-	// Try parsing as datetime
 	if t, err := time.Parse("2006-01-02T15:04:05", since); err == nil {
 		return t, nil
 	}
 
-	return time.Time{}, fmt.Errorf("unable to parse time: %s", since)
+	if t, err := time.Parse("2006-01-02", since); err == nil {
+		return t, nil
+	}
+
+	return time.Time{}, fmt.Errorf("invalid time format: %s", since)
 }
