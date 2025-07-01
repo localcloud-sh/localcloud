@@ -64,11 +64,11 @@ func (s *AIServiceStarter) Start() error {
 		Networks:      []string{fmt.Sprintf("localcloud_%s_default", s.manager.config.Project.Name)},
 		RestartPolicy: "unless-stopped",
 		HealthCheck: &HealthCheckConfig{
-			Test:        []string{"CMD", "curl", "-f", "http://localhost:11434/api/tags"},
-			Interval:    30,
+			Test:        []string{"CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:11434/api/tags || exit 1"},
+			Interval:    60,
 			Timeout:     30,
 			Retries:     5,
-			StartPeriod: 60,
+			StartPeriod: 120,
 		},
 		Labels: map[string]string{
 			"com.localcloud.project": s.manager.config.Project.Name,
