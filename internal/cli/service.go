@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/briandowns/spinner"
+	"github.com/fatih/color"
 	"github.com/localcloud/localcloud/internal/config"
 	"github.com/localcloud/localcloud/internal/docker"
 	"github.com/localcloud/localcloud/internal/services"
@@ -13,7 +14,6 @@ import (
 	"github.com/spf13/cobra"
 	"os"
 	"strings"
-	"text/tabwriter"
 	"time"
 )
 
@@ -171,90 +171,6 @@ Examples:
   lc stop whisper   # Stop only Whisper service`,
 		RunE: runStopService,
 	})
-}
-
-func runServicesList(cmd *cobra.Command, args []string) error {
-	// Check if we're in a LocalCloud project
-	if !isLocalCloudProject() {
-		return fmt.Errorf("not in a LocalCloud project directory")
-	}
-
-	// Load configuration
-	cfg, err := loadConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	// Create managers
-	ctx := context.Background()
-	dockerManager, err := docker.NewManager(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create Docker manager: %w", err)
-	}
-
-	portManager := templates.NewPortManager()
-	serviceManager := services.NewServiceManager(cfg.Project.Name, dockerManager, portManager)
-
-	// Get all services
-	svcList := serviceManager.ListServices()
-
-	if jsonOutput {
-		// JSON output
-		data, err := json.MarshalIndent(svcList, "", "  ")
-		if err != nil {
-			return err
-		}
-		fmt.Println(string(data))
-		return nil
-	}
-
-	// Table output
-	if len(svcList) == 0 {
-		fmt.Println("No services are currently running.")
-		fmt.Println("\nStart services with: lc start [service-name]")
-		return nil
-	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-
-	if detailed {
-		// Detailed view with service type and model info
-		fmt.Fprintln(w, "SERVICE\tTYPE\tMODEL\tPORT\tURL\tSTATUS")
-		fmt.Fprintln(w, "-------\t----\t-----\t----\t---\t------")
-
-		for _, svc := range svcList {
-			serviceType, model := getServiceTypeAndModel(svc.Name, cfg)
-			fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\n",
-				formatServiceDisplayName(svc.Name),
-				serviceType,
-				model,
-				svc.Port,
-				svc.URL,
-				svc.Status,
-			)
-		}
-	} else {
-		// Simple view with model info for AI services
-		fmt.Fprintln(w, "SERVICE\tMODEL\tSTATUS\tPORT")
-		fmt.Fprintln(w, "-------\t-----\t------\t----")
-
-		for _, svc := range svcList {
-			_, model := getServiceTypeAndModel(svc.Name, cfg)
-			modelDisplay := model
-			if modelDisplay == "-" {
-				modelDisplay = "" // Don't show dash for non-AI services in simple view
-			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%d\n",
-				formatServiceDisplayName(svc.Name),
-				modelDisplay,
-				svc.Status,
-				svc.Port,
-			)
-		}
-	}
-
-	w.Flush()
-	return nil
 }
 
 // formatServiceDisplayName converts service names to user-friendly display
@@ -644,56 +560,6 @@ func showServiceExamples(service string, port int) {
 		fmt.Println("      -d '{\"prompt\": \"a beautiful landscape\", \"steps\": 20}'")
 	}
 }
-func runServiceStatus(cmd *cobra.Command, args []string) error {
-	serviceName := args[0]
-
-	if !isLocalCloudProject() {
-		return fmt.Errorf("not in a LocalCloud project directory")
-	}
-
-	cfg, err := loadConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	projectName := cfg.Project.Name
-	if projectName == "" {
-		projectName = "default"
-	}
-
-	ctx := context.Background()
-	dockerManager, err := docker.NewManager(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create Docker manager: %w", err)
-	}
-
-	portManager := templates.NewPortManager()
-	serviceManager := services.NewServiceManager(projectName, dockerManager, portManager)
-
-	// Use resolveServiceName to find the actual service name
-	actualServiceName, err := resolveServiceName(serviceManager, serviceName)
-	if err != nil {
-		return err
-	}
-
-	// Get service status
-	service, err := serviceManager.GetServiceStatus(actualServiceName)
-	if err != nil {
-		return err
-	}
-
-	// Display status
-	fmt.Printf("Service: %s\n", service.Name)
-	fmt.Printf("Status: %s\n", service.Status)
-	fmt.Printf("Port: %d\n", service.Port)
-	fmt.Printf("URL: %s\n", service.URL)
-	if service.Health != "" {
-		fmt.Printf("Health: %s\n", service.Health)
-	}
-	fmt.Printf("Started: %s\n", service.StartedAt.Format("2006-01-02 15:04:05"))
-
-	return nil
-}
 
 func runServiceStop(cmd *cobra.Command, args []string) error {
 	serviceName := args[0]
@@ -827,51 +693,326 @@ func runServiceRestart(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// Add this function to internal/cli/service.go (near the other helper functions)
+// internal/cli/service.go - Updated resolveServiceName function and service status
 
 // resolveServiceName tries to find the actual service name from an alias
 func resolveServiceName(serviceManager *services.ServiceManager, inputName string) (string, error) {
-	// First try ParseComponentName
-	normalizedName, _ := serviceManager.ParseComponentName(inputName)
+	// Common service name mappings
+	serviceAliases := map[string]string{
+		// Cache aliases
+		"cache":       "redis",
+		"redis-cache": "redis",
 
-	// Check if service exists with normalized name
-	if _, err := serviceManager.GetServiceStatus(normalizedName); err == nil {
-		return normalizedName, nil
+		// Queue aliases
+		"queue":       "redis-queue",
+		"redis-queue": "redis-queue",
+
+		// Database aliases
+		"db":         "postgres",
+		"database":   "postgres",
+		"postgresql": "postgres",
+		"pg":         "postgres",
+
+		// AI aliases
+		"ai":     "ai",
+		"ollama": "ai",
+		"llm":    "ai",
+
+		// Storage aliases
+		"storage": "minio",
+		"s3":      "minio",
+		"minio":   "minio",
+
+		// Speech-to-text aliases
+		"whisper":        "whisper",
+		"stt":            "whisper",
+		"speech-to-text": "whisper",
+
+		// Text-to-speech aliases
+		"tts":            "piper",
+		"text-to-speech": "piper",
+		"piper":          "piper",
+
+		// Vector DB aliases
+		"vector":    "pgvector",
+		"vector-db": "pgvector",
+		"pgvector":  "pgvector",
+		"qdrant":    "qdrant",
+
+		// Image generation aliases
+		"image":            "stable-diffusion",
+		"image-gen":        "stable-diffusion",
+		"image-generation": "stable-diffusion",
+		"stable-diffusion": "stable-diffusion",
+		"sd":               "stable-diffusion",
 	}
 
-	// Check if service exists with original name
+	// First check if it's an alias
+	if actualName, exists := serviceAliases[strings.ToLower(inputName)]; exists {
+		// Try to get service status with the mapped name
+		if _, err := serviceManager.GetServiceStatus(actualName); err == nil {
+			return actualName, nil
+		}
+		// If that fails, try some variations
+		// For Redis services, container names might be different
+		if actualName == "redis" {
+			// Try localcloud-redis
+			if _, err := serviceManager.GetServiceStatus("localcloud-redis"); err == nil {
+				return "localcloud-redis", nil
+			}
+		}
+	}
+
+	// Try the input name directly
 	if _, err := serviceManager.GetServiceStatus(inputName); err == nil {
 		return inputName, nil
 	}
 
-	// Check all running services for alias matches
+	// Try with localcloud- prefix
+	prefixedName := "localcloud-" + inputName
+	if _, err := serviceManager.GetServiceStatus(prefixedName); err == nil {
+		return prefixedName, nil
+	}
+
+	// List all services and try to find a match
 	allServices := serviceManager.ListServices()
-	for _, svc := range allServices {
-		// Check common aliases
-		switch svc.Name {
-		case "speech-to-text":
-			if inputName == "whisper" || inputName == "stt" || inputName == "speech-to-text" {
-				return svc.Name, nil
-			}
-		case "text-to-speech":
-			if inputName == "tts" || inputName == "piper" || inputName == "text-to-speech" {
-				return svc.Name, nil
-			}
-		case "vector-db":
-			if inputName == "qdrant" || inputName == "pgvector" || inputName == "vector" {
-				return svc.Name, nil
-			}
-		case "image-generation":
-			if inputName == "stable-diffusion" || inputName == "sd" || inputName == "image-gen" || inputName == "image" {
+
+	// Debug: show all available services
+	if len(allServices) > 0 {
+		availableNames := []string{}
+		for _, svc := range allServices {
+			availableNames = append(availableNames, svc.Name)
+
+			// Check if the service name contains our input
+			if strings.Contains(strings.ToLower(svc.Name), strings.ToLower(inputName)) {
 				return svc.Name, nil
 			}
 		}
 
-		// Also check if the input matches the service name directly
-		if svc.Name == inputName {
-			return svc.Name, nil
+		return "", fmt.Errorf("service '%s' not found. Available services: %s", inputName, strings.Join(availableNames, ", "))
+	}
+
+	return "", fmt.Errorf("service '%s' not found (no services are running)", inputName)
+}
+
+// Updated runServiceStatus to show better error messages
+func runServiceStatus(cmd *cobra.Command, args []string) error {
+	serviceName := args[0]
+
+	if !isLocalCloudProject() {
+		return fmt.Errorf("not in a LocalCloud project directory")
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	projectName := cfg.Project.Name
+	if projectName == "" {
+		projectName = "default"
+	}
+
+	ctx := context.Background()
+	dockerManager, err := docker.NewManager(ctx, cfg)
+	if err != nil {
+		if strings.Contains(err.Error(), "Docker daemon not running") {
+			return fmt.Errorf("Docker is not running. Please start Docker Desktop")
+		}
+		return fmt.Errorf("failed to create Docker manager: %w", err)
+	}
+	defer dockerManager.Close()
+
+	portManager := templates.NewPortManager()
+	serviceManager := services.NewServiceManager(projectName, dockerManager, portManager)
+
+	// First, list all services to help with debugging
+	if verbose {
+		allServices := serviceManager.ListServices()
+		fmt.Printf("DEBUG: Available services: %d\n", len(allServices))
+		for _, svc := range allServices {
+			fmt.Printf("  - %s (status: %s)\n", svc.Name, svc.Status)
+		}
+		fmt.Println()
+	}
+
+	// Use resolveServiceName to find the actual service name
+	actualServiceName, err := resolveServiceName(serviceManager, serviceName)
+	if err != nil {
+		// If service not found, suggest running services list
+		fmt.Printf("Error: %v\n\n", err)
+		fmt.Println("Tip: Run 'lc services' to see all available services")
+		return nil
+	}
+
+	// Get service status
+	service, err := serviceManager.GetServiceStatus(actualServiceName)
+	if err != nil {
+		return fmt.Errorf("failed to get status for %s: %w", actualServiceName, err)
+	}
+
+	// Display status
+	fmt.Printf("Service: %s", service.Name)
+	if service.Name != serviceName {
+		fmt.Printf(" (alias: %s)", serviceName)
+	}
+	fmt.Println()
+
+	// Color the status
+	statusColor := color.New(color.FgRed).SprintFunc()
+	if service.Status == "running" {
+		statusColor = color.New(color.FgGreen).SprintFunc()
+	} else if service.Status == "starting" {
+		statusColor = color.New(color.FgYellow).SprintFunc()
+	}
+
+	fmt.Printf("Status: %s\n", statusColor(service.Status))
+	fmt.Printf("Port: %d\n", service.Port)
+	fmt.Printf("URL: %s\n", service.URL)
+
+	if service.Health != "" {
+		healthColor := color.New(color.FgRed).SprintFunc()
+		if service.Health == "healthy" {
+			healthColor = color.New(color.FgGreen).SprintFunc()
+		} else if service.Health == "starting" {
+			healthColor = color.New(color.FgYellow).SprintFunc()
+		}
+		fmt.Printf("Health: %s\n", healthColor(service.Health))
+	}
+
+	if !service.StartedAt.IsZero() {
+		fmt.Printf("Started: %s (up %s)\n",
+			service.StartedAt.Format("2006-01-02 15:04:05"),
+			time.Since(service.StartedAt).Round(time.Second))
+	}
+
+	// Show container info if verbose
+	if verbose && service.ContainerID != "" {
+		fmt.Printf("Container: %s\n", service.ContainerID)
+	}
+
+	return nil
+}
+
+// internal/cli/service.go - Replace the existing runServicesList function with this:
+
+func runServicesList(cmd *cobra.Command, args []string) error {
+	// Check if we're in a LocalCloud project
+	if !isLocalCloudProject() {
+		return fmt.Errorf("not in a LocalCloud project directory")
+	}
+
+	// Load configuration
+	cfg, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Create Docker manager
+	ctx := context.Background()
+	dockerManager, err := docker.NewManager(ctx, cfg)
+	if err != nil {
+		if strings.Contains(err.Error(), "Docker daemon not running") {
+			return fmt.Errorf("Docker is not running. Please start Docker Desktop")
+		}
+		return fmt.Errorf("failed to create Docker manager: %w", err)
+	}
+	defer dockerManager.Close()
+
+	// Get service status from Docker directly (like lc status does)
+	statuses, err := dockerManager.GetServicesStatus()
+	if err != nil {
+		return fmt.Errorf("failed to get service status: %w", err)
+	}
+
+	if len(statuses) == 0 {
+		fmt.Println("No services are currently running.")
+		fmt.Println("\nStart services with: lc start [service-name]")
+		return nil
+	}
+
+	// Convert docker.ServiceStatus to services.Service for display
+	var svcList []services.Service
+	for _, status := range statuses {
+		// Parse port from string
+		var port int
+		fmt.Sscanf(status.Port, "%d", &port)
+
+		svc := services.Service{
+			Name:   status.Name,
+			Status: status.Status,
+			Health: status.Health,
+			Port:   port,
+			URL:    fmt.Sprintf("http://localhost:%d", port),
+		}
+		svcList = append(svcList, svc)
+	}
+
+	if jsonOutput {
+		// JSON output
+		data, err := json.MarshalIndent(svcList, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(data))
+		return nil
+	}
+
+	// Table output
+	if detailed {
+		// Detailed view with manual formatting
+		fmt.Printf("%-10s %-12s %-15s %-6s %-30s %-10s\n",
+			"SERVICE", "TYPE", "MODEL", "PORT", "URL", "STATUS")
+		fmt.Printf("%-10s %-12s %-15s %-6s %-30s %-10s\n",
+			"-------", "----", "-----", "----", "---", "------")
+
+		for _, svc := range svcList {
+			serviceType, model := getServiceTypeAndModel(svc.Name, cfg)
+			fmt.Printf("%-10s %-12s %-15s %-6d %-30s %-10s\n",
+				formatServiceDisplayName(svc.Name),
+				serviceType,
+				model,
+				svc.Port,
+				svc.URL,
+				svc.Status,
+			)
+		}
+	} else {
+		// Simple view with manual formatting for better control
+		fmt.Printf("%-10s %-12s %-12s %-6s\n", "SERVICE", "STATUS", "HEALTH", "PORT")
+		fmt.Printf("%-10s %-12s %-12s %-6s\n", "-------", "------", "------", "----")
+
+		for _, svc := range svcList {
+			// Color status based on state
+			statusDisplay := svc.Status
+			if svc.Status == "running" {
+				statusDisplay = successColor(svc.Status)
+			} else {
+				statusDisplay = errorColor(svc.Status)
+			}
+
+			// Color health based on state
+			healthDisplay := svc.Health
+			if svc.Health == "healthy" {
+				healthDisplay = successColor(svc.Health)
+			} else if svc.Health == "unhealthy" {
+				healthDisplay = errorColor(svc.Health)
+			} else if svc.Health == "starting" {
+				healthDisplay = warningColor(svc.Health)
+			} else {
+				healthDisplay = "-"
+			}
+
+			// Format with fixed widths
+			serviceName := formatServiceDisplayName(svc.Name)
+			fmt.Printf("%-10s %-20s %-20s %-6d\n",
+				serviceName,
+				statusDisplay,
+				healthDisplay,
+				svc.Port,
+			)
 		}
 	}
 
-	return "", fmt.Errorf("service %s not found", inputName)
+	return nil
 }
