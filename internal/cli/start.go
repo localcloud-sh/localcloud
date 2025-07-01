@@ -227,163 +227,6 @@ finished:
 	return nil
 }
 
-// showStartedServicesInfo displays information about started services based on components
-func showStartedServicesInfo(cfg *config.Config, startedServices map[string]bool) {
-	fmt.Println()
-
-	// Check which components are running
-	enabledComponents := getEnabledComponents(cfg)
-
-	for _, compID := range enabledComponents {
-		comp, _ := components.GetComponent(compID)
-
-		// Check if component's services are running
-		allRunning := true
-		for _, service := range comp.Services {
-			if !startedServices[service] {
-				allRunning = false
-				break
-			}
-		}
-
-		if !allRunning {
-			continue
-		}
-
-		switch compID {
-		case "llm":
-			fmt.Println("✓ LLM (Text generation)")
-			fmt.Printf("  Chat: http://localhost:%d/api/chat\n", cfg.Services.AI.Port)
-			fmt.Printf("  Generate: http://localhost:%d/api/generate\n", cfg.Services.AI.Port)
-			fmt.Println("  Try:")
-			fmt.Printf("    curl http://localhost:%d/api/generate \\\n", cfg.Services.AI.Port)
-			fmt.Println(`      -d '{"model":"qwen2.5:3b","prompt":"Hello!"}'`)
-			fmt.Println()
-
-		case "embedding":
-			fmt.Println("✓ Embeddings (Semantic search)")
-			fmt.Printf("  URL: http://localhost:%d/api/embeddings\n", cfg.Services.AI.Port)
-			fmt.Println("  Try:")
-			fmt.Printf("    curl http://localhost:%d/api/embeddings \\\n", cfg.Services.AI.Port)
-			fmt.Println(`      -d '{"model":"nomic-embed-text","prompt":"Hello world"}'`)
-			fmt.Println()
-
-		case "vector":
-			PrintPgVectorServiceInfo(cfg.Services.Database.Port)
-
-		case "cache":
-			PrintRedisCacheInfo(cfg.Services.Cache.Port)
-
-		case "queue":
-			PrintRedisQueueInfo(cfg.Services.Queue.Port)
-
-		case "storage":
-			fmt.Println("✓ Object Storage (MinIO)")
-			fmt.Printf("  API: http://localhost:%d\n", cfg.Services.Storage.Port)
-			fmt.Printf("  Console: http://localhost:%d\n", cfg.Services.Storage.Console)
-			fmt.Println("  Credentials: see ~/.localcloud/minio-credentials")
-			fmt.Println()
-		case "stt":
-			fmt.Println("✓ Speech-to-Text (Whisper)")
-			fmt.Printf("  URL: http://localhost:%d\n", cfg.Services.Whisper.Port)
-			fmt.Println("  Try:")
-			fmt.Println("    # Transcribe audio file")
-			fmt.Printf("    curl -X POST http://localhost:%d/asr \\\n", cfg.Services.Whisper.Port)
-			fmt.Println(`      -F "audio_file=@sample.wav" \`)
-			fmt.Println(`      -F "language=en"`)
-			fmt.Println()
-			if cfg.Services.Whisper.Model != "" {
-				fmt.Printf("  Model: %s\n", cfg.Services.Whisper.Model)
-			}
-			fmt.Println()
-		}
-
-	}
-	if cfg.Services.Database.Type == "postgres" && startedServices["postgres"] {
-		// Check if pgvector extension is enabled
-		if !componentFound("vector", enabledComponents) {
-			// Show regular PostgreSQL info or pgvector info based on extensions
-			PrintPostgreSQLServiceInfo(cfg.Services.Database.Port, cfg.Services.Database.Extensions)
-		}
-	}
-}
-
-// showConnectionInfo displays connection information
-func showConnectionInfo(cfg *config.Config) {
-	fmt.Println("Connection Information:")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("Project: %s\n", cfg.Project.Name)
-
-	// Show model configuration
-	if len(cfg.Services.AI.Models) > 0 {
-		fmt.Printf("Models: %s\n", strings.Join(cfg.Services.AI.Models, ", "))
-	}
-	if cfg.Services.AI.Default != "" {
-		fmt.Printf("Default: %s\n", cfg.Services.AI.Default)
-	}
-
-	// Database URL
-	if cfg.Services.Database.Type == "postgres" {
-		fmt.Println("Database URL:")
-		fmt.Printf("postgresql://localcloud:localcloud@localhost:%d/localcloud\n", cfg.Services.Database.Port)
-	}
-
-	// Show all configured services with their URLs
-	fmt.Println("\nActive Services:")
-
-	// AI Service - check if port is configured (meaning it's enabled)
-	if cfg.Services.AI.Port > 0 {
-		fmt.Printf("✓ AI Models (Ollama): http://localhost:%d\n", cfg.Services.AI.Port)
-		fmt.Printf("  - Chat API: http://localhost:%d/api/chat\n", cfg.Services.AI.Port)
-		fmt.Printf("  - Generate API: http://localhost:%d/api/generate\n", cfg.Services.AI.Port)
-		if len(cfg.Services.AI.Models) > 0 {
-			for _, model := range cfg.Services.AI.Models {
-				if models.IsEmbeddingModel(model) {
-					fmt.Printf("  - Embeddings API: http://localhost:%d/api/embeddings\n", cfg.Services.AI.Port)
-					break
-				}
-			}
-		}
-	}
-
-	// Database Service - check if type is configured
-	if cfg.Services.Database.Type != "" {
-		fmt.Printf("✓ PostgreSQL: postgresql://localhost:%d\n", cfg.Services.Database.Port)
-		if containsString(cfg.Services.Database.Extensions, "vector") {
-			fmt.Printf("  - pgvector extension enabled\n")
-		}
-	}
-
-	// Cache Service - check if type is configured
-	if cfg.Services.Cache.Type != "" {
-		fmt.Printf("✓ Redis Cache: redis://localhost:%d\n", cfg.Services.Cache.Port)
-	}
-
-	// Queue Service - check if type is configured
-	if cfg.Services.Queue.Type != "" {
-		fmt.Printf("✓ Redis Queue: redis://localhost:%d\n", cfg.Services.Queue.Port)
-		if cfg.Services.Queue.Port == cfg.Services.Cache.Port {
-			fmt.Printf("  - Shared with cache service\n")
-		}
-	}
-
-	// Storage Service - check if type is configured
-	if cfg.Services.Storage.Type != "" {
-		fmt.Printf("✓ MinIO Storage: http://localhost:%d\n", cfg.Services.Storage.Port)
-		fmt.Printf("  - Console: http://localhost:%d\n", cfg.Services.Storage.Console)
-	}
-
-	// Speech-to-Text Service - check if type is configured
-	if cfg.Services.Whisper.Type != "" {
-		fmt.Printf("✓ Speech-to-Text (Whisper): http://localhost:%d\n", cfg.Services.Whisper.Port)
-		if cfg.Services.Whisper.Model != "" {
-			fmt.Printf("  - Model: %s\n", cfg.Services.Whisper.Model)
-		}
-	}
-
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-}
-
 // Helper function to check if a string is in a slice
 func containsString(slice []string, item string) bool {
 	for _, s := range slice {
@@ -418,4 +261,174 @@ func componentFound(id string, components []string) bool {
 		}
 	}
 	return false
+}
+
+// internal/cli/start.go
+// Updated showStartedServicesInfo function to show only relevant component info
+
+func showStartedServicesInfo(cfg *config.Config, startedServices map[string]bool) {
+	fmt.Println()
+
+	// Check which components are running
+	enabledComponents := getEnabledComponents(cfg)
+
+	for _, compID := range enabledComponents {
+		comp, _ := components.GetComponent(compID)
+
+		// Check if component's services are running
+		allRunning := true
+		for _, service := range comp.Services {
+			if !startedServices[service] {
+				allRunning = false
+				break
+			}
+		}
+
+		if !allRunning {
+			continue
+		}
+
+		switch compID {
+		case "llm":
+			fmt.Println("✓ LLM (Text generation)")
+			fmt.Printf("  Chat: http://localhost:%d/api/chat\n", cfg.Services.AI.Port)
+			fmt.Printf("  Generate: http://localhost:%d/api/generate\n", cfg.Services.AI.Port)
+			fmt.Println("  Try:")
+			fmt.Printf("    curl http://localhost:%d/api/generate \\\n", cfg.Services.AI.Port)
+			// Find a configured LLM model
+			var llmModel string
+			for _, model := range cfg.Services.AI.Models {
+				if !models.IsEmbeddingModel(model) {
+					llmModel = model
+					break
+				}
+			}
+			if llmModel == "" {
+				llmModel = "qwen2.5:3b" // fallback
+			}
+			fmt.Printf(`      -d '{"model":"%s","prompt":"Hello!"}'`, llmModel)
+			fmt.Println()
+
+		case "embedding":
+			fmt.Println("✓ Embeddings (Semantic search)")
+			fmt.Printf("  URL: http://localhost:%d/api/embeddings\n", cfg.Services.AI.Port)
+			fmt.Println("  Try:")
+			fmt.Printf("    curl http://localhost:%d/api/embeddings \\\n", cfg.Services.AI.Port)
+			// Find configured embedding model
+			var embModel string
+			for _, model := range cfg.Services.AI.Models {
+				if models.IsEmbeddingModel(model) {
+					embModel = model
+					break
+				}
+			}
+			if embModel == "" {
+				embModel = "nomic-embed-text" // fallback
+			}
+			fmt.Printf(`      -d '{"model":"%s","prompt":"Hello world"}'`, embModel)
+			fmt.Println()
+
+		case "vector":
+			PrintPgVectorServiceInfo(cfg.Services.Database.Port)
+
+		case "cache":
+			PrintRedisCacheInfo(cfg.Services.Cache.Port)
+
+		case "queue":
+			PrintRedisQueueInfo(cfg.Services.Queue.Port)
+
+		case "storage":
+			fmt.Println("✓ Object Storage (MinIO)")
+			fmt.Printf("  API: http://localhost:%d\n", cfg.Services.Storage.Port)
+			fmt.Printf("  Console: http://localhost:%d\n", cfg.Services.Storage.Console)
+			fmt.Println("  Credentials: see ~/.localcloud/minio-credentials")
+			fmt.Println()
+
+		case "stt":
+			// Whisper info
+			fmt.Printf("✓ Speech-to-Text (Whisper)\n")
+			fmt.Printf("  URL: http://localhost:%d\n", cfg.Services.Whisper.Port)
+		}
+	}
+}
+
+// Updated showConnectionInfo to show only configured services
+func showConnectionInfo(cfg *config.Config) {
+	fmt.Println("Connection Information:")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("Project: %s\n", cfg.Project.Name)
+
+	// Show model configuration
+	if len(cfg.Services.AI.Models) > 0 {
+		fmt.Printf("Models: %s\n", strings.Join(cfg.Services.AI.Models, ", "))
+	}
+	if cfg.Services.AI.Default != "" {
+		fmt.Printf("Default: %s\n", cfg.Services.AI.Default)
+	}
+
+	// Show all configured services with their URLs
+	fmt.Println("\nActive Services:")
+
+	// Get enabled components to determine what to show
+	enabledComponents := getEnabledComponents(cfg)
+
+	// AI Service - check if port is configured (meaning it's enabled)
+	if cfg.Services.AI.Port > 0 {
+		fmt.Printf("✓ AI Models (Ollama): http://localhost:%d\n", cfg.Services.AI.Port)
+
+		// Only show APIs for enabled components
+		hasLLM := false
+		hasEmbedding := false
+
+		for _, comp := range enabledComponents {
+			if comp == "llm" {
+				hasLLM = true
+			} else if comp == "embedding" {
+				hasEmbedding = true
+			}
+		}
+
+		if hasLLM {
+			fmt.Printf("  - Chat API: http://localhost:%d/api/chat\n", cfg.Services.AI.Port)
+			fmt.Printf("  - Generate API: http://localhost:%d/api/generate\n", cfg.Services.AI.Port)
+		}
+
+		if hasEmbedding {
+			fmt.Printf("  - Embeddings API: http://localhost:%d/api/embeddings\n", cfg.Services.AI.Port)
+		}
+	}
+
+	// Database Service - check if type is configured
+	if cfg.Services.Database.Type != "" {
+		fmt.Printf("✓ PostgreSQL: postgresql://localhost:%d\n", cfg.Services.Database.Port)
+		if containsString(cfg.Services.Database.Extensions, "pgvector") {
+			fmt.Printf("  - pgvector extension enabled\n")
+		}
+	}
+
+	// Cache Service - check if type is configured
+	if cfg.Services.Cache.Type != "" {
+		fmt.Printf("✓ Redis Cache: redis://localhost:%d\n", cfg.Services.Cache.Port)
+	}
+
+	// Queue Service
+	if cfg.Services.Queue.Type != "" {
+		fmt.Printf("✓ Redis Queue: redis://localhost:%d\n", cfg.Services.Queue.Port)
+		fmt.Printf("  - Persistent with AOF enabled\n")
+	}
+
+	// Storage Service
+	if cfg.Services.Storage.Type != "" {
+		fmt.Printf("✓ Object Storage (MinIO): http://localhost:%d\n", cfg.Services.Storage.Port)
+		fmt.Printf("  - Console: http://localhost:%d\n", cfg.Services.Storage.Console)
+		fmt.Printf("  - Access Key: minioadmin\n")
+		fmt.Printf("  - Secret Key: minioadmin\n")
+	}
+
+	// Whisper Service
+	if cfg.Services.Whisper.Type != "" {
+		fmt.Printf("✓ Speech-to-Text: http://localhost:%d\n", cfg.Services.Whisper.Port)
+	}
+
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 }

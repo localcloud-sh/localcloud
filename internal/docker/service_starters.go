@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/localcloud/localcloud/internal/models"
@@ -34,11 +35,37 @@ func NewAIServiceStarter(m *Manager) ServiceStarter {
 	}
 }
 
-// Start starts the AI service
+// Start starts the AI service with proper volume mounting
 func (s *AIServiceStarter) Start() error {
 	// Check and pull image
 	if err := s.ensureImage("ollama/ollama:latest"); err != nil {
 		return err
+	}
+
+	// Determine the Ollama models directory based on OS
+	var ollamaModelsPath string
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	switch runtime.GOOS {
+	case "darwin": // macOS
+		ollamaModelsPath = filepath.Join(homeDir, ".ollama", "models")
+	case "linux":
+		ollamaModelsPath = filepath.Join(homeDir, ".ollama", "models")
+	case "windows":
+		ollamaModelsPath = filepath.Join(homeDir, ".ollama", "models")
+	default:
+		ollamaModelsPath = filepath.Join(homeDir, ".ollama", "models")
+	}
+
+	// Check if we should use host's Ollama models or project-specific volume
+	useHostModels := false
+	if _, err := os.Stat(ollamaModelsPath); err == nil {
+		// Host has Ollama models directory
+		useHostModels = true
+		fmt.Printf("DEBUG: Found host Ollama models at: %s\n", ollamaModelsPath)
 	}
 
 	// Create container config
@@ -53,12 +80,6 @@ func (s *AIServiceStarter) Start() error {
 				ContainerPort: "11434",
 				HostPort:      fmt.Sprintf("%d", s.manager.config.Services.AI.Port),
 				Protocol:      "tcp",
-			},
-		},
-		Volumes: []VolumeMount{
-			{
-				Source: fmt.Sprintf("localcloud_%s_ollama_models", s.manager.config.Project.Name),
-				Target: "/root/.ollama",
 			},
 		},
 		Networks:      []string{fmt.Sprintf("localcloud_%s_default", s.manager.config.Project.Name)},
@@ -76,29 +97,53 @@ func (s *AIServiceStarter) Start() error {
 		},
 	}
 
+	// Configure volume mounting
+	if useHostModels {
+		// Bind mount the host's Ollama directory to share models
+		config.Volumes = []VolumeMount{
+			{
+				Type:     "bind",
+				Source:   filepath.Dir(ollamaModelsPath), // Mount the parent .ollama directory
+				Target:   "/root/.ollama",
+				ReadOnly: false,
+			},
+		}
+		fmt.Println("ℹ Using host Ollama models directory")
+	} else {
+		// Use project-specific volume
+		config.Volumes = []VolumeMount{
+			{
+				Source: fmt.Sprintf("localcloud_%s_ollama_models", s.manager.config.Project.Name),
+				Target: "/root/.ollama",
+			},
+		}
+		fmt.Println("ℹ Using project-specific models volume")
+	}
+
 	// Create and start container
 	containerID, err := s.manager.container.Create(config)
 	if err != nil {
 		return err
 	}
 
+	fmt.Printf("DEBUG: Container %s created successfully\n", config.Name)
+
 	if err := s.manager.container.Start(containerID); err != nil {
 		return err
 	}
 
-	// Just wait for Ollama to start
-	time.Sleep(10 * time.Second)
+	// Wait for Ollama to be ready
+	if err := s.waitForOllama(); err != nil {
+		return fmt.Errorf("ollama failed to start: %w", err)
+	}
+
+	fmt.Println("DEBUG: Service ai started successfully")
 
 	// Post-start tasks
 	return s.postStart()
 }
 
-// postStart performs post-startup tasks for AI service
 func (s *AIServiceStarter) postStart() error {
-	// Wait for Ollama to be fully ready
-	time.Sleep(3 * time.Second)
-
-	// Check if any models are configured to be auto-pulled
 	cfg := s.manager.config
 	if len(cfg.Services.AI.Models) == 0 {
 		return nil
@@ -107,12 +152,18 @@ func (s *AIServiceStarter) postStart() error {
 	// Create model manager
 	modelManager := models.NewManager(fmt.Sprintf("http://localhost:%d", cfg.Services.AI.Port))
 
+	// Wait a bit more for Ollama to stabilize
+	time.Sleep(2 * time.Second)
+
 	// Check installed models
 	installedModels, err := modelManager.List()
 	if err != nil {
 		// Not critical, Ollama might still be starting
+		fmt.Printf("DEBUG: Could not list models: %v\n", err)
 		return nil
 	}
+
+	fmt.Printf("DEBUG: Found %d installed models\n", len(installedModels))
 
 	// Separate configured models by type
 	var llmModels []string
@@ -126,27 +177,23 @@ func (s *AIServiceStarter) postStart() error {
 		}
 	}
 
-	// Check if default model is installed
-	defaultModel := cfg.Services.AI.Default
-	if defaultModel == "" && len(llmModels) > 0 {
-		defaultModel = llmModels[0]
-	}
+	// Check if configured models are installed
+	for _, modelName := range cfg.Services.AI.Models {
+		installed := false
+		for _, inst := range installedModels {
+			if inst.Name == modelName || inst.Model == modelName {
+				installed = true
+				break
+			}
+		}
 
-	defaultInstalled := false
-	for _, model := range installedModels {
-		if model.Name == defaultModel || model.Model == defaultModel {
-			defaultInstalled = true
-			break
+		if !installed {
+			fmt.Printf("\n%s Default model '%s' is not installed.\n", warningColor("!"), modelName)
+			fmt.Printf("Run '%s' to download it.\n", infoColor(fmt.Sprintf("lc models pull %s", modelName)))
 		}
 	}
 
-	// If default model not installed, show a message
-	if !defaultInstalled && defaultModel != "" {
-		fmt.Printf("\n%s Default model '%s' is not installed.\n", warningColor("!"), defaultModel)
-		fmt.Printf("Run '%s' to download it.\n\n", infoColor(fmt.Sprintf("lc models pull %s", defaultModel)))
-	}
-
-	// Show configured embedding models
+	// Show configured models by type
 	if len(embeddingModels) > 0 {
 		fmt.Printf("\nConfigured embedding models:\n")
 		for _, modelName := range embeddingModels {
@@ -218,20 +265,21 @@ func (s *AIServiceStarter) PrintServiceInfo() {
 	fmt.Println(`    embedding = resp.json()['embedding']  # 768-dim vector`)
 }
 
-// ensureImage checks if image exists and pulls if needed
 func (s *AIServiceStarter) ensureImage(image string) error {
-	hasImage, err := s.manager.image.Exists(image)
+	imageManager := s.manager.GetClient().NewImageManager()
+
+	exists, err := imageManager.Exists(image)
 	if err != nil {
 		return fmt.Errorf("failed to check image: %w", err)
 	}
 
-	if !hasImage {
+	if !exists {
 		fmt.Printf("Pulling %s image...\n", image)
 		progress := make(chan PullProgress)
 		done := make(chan error)
 
 		go func() {
-			done <- s.manager.image.Pull(image, progress)
+			done <- imageManager.Pull(image, progress)
 		}()
 
 		// Display progress
