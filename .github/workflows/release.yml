@@ -7,22 +7,37 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
 
-      - name: Build binaries
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build release binaries
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
-          ./scripts/build.sh
+          echo "Building version $VERSION"
+          chmod +x scripts/build.sh
+          VERSION=$VERSION ./scripts/build.sh
+
+      - name: Generate changelog
+        run: |
+          echo "## What's Changed" > CHANGELOG.md
+          git log $(git describe --tags --abbrev=0 HEAD^)..HEAD --pretty=format:"- %s" >> CHANGELOG.md
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -31,8 +46,20 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
             dist/checksums.txt
+          body_path: CHANGELOG.md
           draft: false
           prerelease: false
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Homebrew Update
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          repository: localcloud-sh/homebrew-tap
+          event-type: update-formula
+          client-payload: '{"version": "${{ github.ref_name }}"}'
