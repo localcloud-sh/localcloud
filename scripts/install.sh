@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REPO="localcloud/localcloud"
+REPO="localcloud-sh/localcloud"
 INSTALL_DIR="/usr/local/bin"
 
 # Detect OS and architecture

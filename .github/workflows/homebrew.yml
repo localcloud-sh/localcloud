@@ -12,6 +12,6 @@ jobs:
         uses: peter-evans/repository-dispatch@v2
         with:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          repository: localcloud/homebrew-tap
+          repository: localcloud-sh/homebrew-tap
           event-type: update-formula
           client-payload: '{"version": "${{ github.event.release.tag_name }}"}'
