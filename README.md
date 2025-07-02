@@ -16,39 +16,47 @@
 
 #### macOS
 
-**Apple Silicon (M1/M2/M3)**:
+**Homebrew (Recommended)**:
+```bash
+brew install localcloud-sh/tap/localcloud
+```
+
+**Manual Installation**:
+
+Apple Silicon:
 ```bash
 curl -L https://github.com/localcloud-sh/localcloud/releases/latest/download/localcloud-darwin-arm64.tar.gz | tar xz
 sudo install -m 755 localcloud-darwin-arm64 /usr/local/bin/localcloud
 sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
 ```
 
-**Intel**:
+Intel:
 ```bash
 curl -L https://github.com/localcloud-sh/localcloud/releases/latest/download/localcloud-darwin-amd64.tar.gz | tar xz
 sudo install -m 755 localcloud-darwin-amd64 /usr/local/bin/localcloud
 sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
 ```
 
-#### Homebrew (Coming Soon)
+#### Linux
+
+**Homebrew (if installed)**:
 ```bash
-# Will be available soon:
-# brew tap localcloud-sh/tap
-# brew install localcloud
+brew install localcloud-sh/tap/localcloud
 ```
 
-#### Linux (Under Testing)
-<details>
-<summary>Show Linux installation (experimental)</summary>
+**Manual Installation**:
 
-**AMD64**:
+<details>
+<summary>Show installation commands</summary>
+
+AMD64:
 ```bash
 curl -L https://github.com/localcloud-sh/localcloud/releases/latest/download/localcloud-linux-amd64.tar.gz | tar xz
 sudo install -m 755 localcloud-linux-amd64 /usr/local/bin/localcloud
 sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
 ```
 
-**ARM64**:
+ARM64:
 ```bash
 curl -L https://github.com/localcloud-sh/localcloud/releases/latest/download/localcloud-linux-arm64.tar.gz | tar xz
 sudo install -m 755 localcloud-linux-arm64 /usr/local/bin/localcloud
@@ -69,6 +77,19 @@ sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
 **Note**: Windows support is experimental. WSL2 is recommended for better compatibility.
 </details>
 
+### Quick Install Script
+
+For macOS and Linux, you can also use our install script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/localcloud-sh/localcloud/main/scripts/install.sh | bash
+```
+
+This script will:
+- Detect your OS and architecture
+- Use Homebrew if available (macOS)
+- Download the appropriate binary
+- Install LocalCloud and create the `lc` alias
 ### Getting Started
 
 ```bash
