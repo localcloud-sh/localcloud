@@ -3,7 +3,6 @@ package pgvector
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -264,7 +263,7 @@ func (db *PgVectorDB) GetStats(ctx context.Context) (vectordb.Stats, error) {
 	stats.LastUpdated = time.Now()
 
 	// Count total documents
-	err := db.client.Query(
+	err := db.client.QueryRow(
 		"SELECT COUNT(DISTINCT document_id) FROM localcloud.embeddings",
 	).Scan(&stats.TotalDocuments)
 	if err != nil {
@@ -272,7 +271,7 @@ func (db *PgVectorDB) GetStats(ctx context.Context) (vectordb.Stats, error) {
 	}
 
 	// Count total vectors
-	err = db.client.Query(
+	err = db.client.QueryRow(
 		"SELECT COUNT(*) FROM localcloud.embeddings",
 	).Scan(&stats.TotalVectors)
 	if err != nil {
@@ -301,7 +300,7 @@ func (db *PgVectorDB) ensureTables() error {
 	// This is already handled in postgres.go initialization
 	// Just verify the table exists
 	var exists bool
-	err := db.client.Query(`
+	err := db.client.QueryRow(`
 		SELECT EXISTS (
 			SELECT FROM information_schema.tables 
 			WHERE table_schema = 'localcloud' 

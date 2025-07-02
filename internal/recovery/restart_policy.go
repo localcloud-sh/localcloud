@@ -266,7 +266,9 @@ func (sr *ServiceRestarter) monitorLoop(ctx context.Context, containerID, servic
 			return
 		default:
 			// Wait for container to exit
-			statusCh, errCh := sr.manager.GetClient().docker.ContainerWait(ctx, containerID, "not-running")
+			client := sr.manager.GetClient()
+			dockerClient := client.GetDockerClient()
+			statusCh, errCh := dockerClient.ContainerWait(ctx, containerID, "not-running")
 
 			select {
 			case err := <-errCh:

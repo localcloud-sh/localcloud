@@ -14,6 +14,10 @@ type Client struct {
 	service *Service
 }
 
+func (c *Client) QueryRow(query string, args ...interface{}) *sql.Row {
+	return c.service.db.QueryRow(query, args...)
+}
+
 // NewClient creates a new database client
 func NewClient(service *Service) *Client {
 	return &Client{service: service}

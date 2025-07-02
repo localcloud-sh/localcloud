@@ -4,6 +4,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"github.com/docker/docker/api/types/container"
 	"io"
 	"os"
 
@@ -257,4 +258,12 @@ func isMac() bool {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+func (c *Client) GetDockerClient() *client.Client {
+	return c.docker
+}
+
+// ContainerWait waits for a container to reach a certain condition
+func (c *Client) ContainerWait(ctx context.Context, containerID string, condition container.WaitCondition) (<-chan container.WaitResponse, <-chan error) {
+	return c.docker.ContainerWait(ctx, containerID, condition)
 }
