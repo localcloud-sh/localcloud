@@ -3,7 +3,7 @@ package cli
 
 import (
 	"fmt"
-	"github.com/localcloud/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/config"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 	"os"

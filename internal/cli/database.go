@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/localcloud/localcloud/internal/config"
-	"github.com/localcloud/localcloud/internal/services/postgres"
+	"github.com/localcloud-sh/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/services/postgres"
 	"github.com/spf13/cobra"
 )
 

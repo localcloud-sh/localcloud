@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/localcloud/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/config"
 )
 
 // ConnectivityManager manages all connectivity features

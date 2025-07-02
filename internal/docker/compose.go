@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/localcloud/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/config"
 	"gopkg.in/yaml.v3"
 )
 

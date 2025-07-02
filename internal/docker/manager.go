@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/localcloud/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/config"
 )
 
 // Manager provides a high-level interface for Docker operations

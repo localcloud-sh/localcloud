@@ -475,7 +475,7 @@ LocalCloud is built on the shoulders of giants:
   <b>LocalCloud</b> - AI development at zero cost, infinite possibilities
   <br>
   <a href="https://localcloud.ai">Website</a> • 
-  <a href="https://github.com/localcloud/localcloud">GitHub</a> • 
+  <a href="https://github.com/localcloud-sh/localcloud">GitHub</a> • 
   <a href="https://discord.gg/localcloud">Discord</a> • 
   <a href="https://twitter.com/localcloudai">Twitter</a>
 </div>

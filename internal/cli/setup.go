@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/localcloud/localcloud/internal/config"
-	"github.com/localcloud/localcloud/internal/system"
-	"github.com/localcloud/localcloud/internal/templates"
+	"github.com/localcloud-sh/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/system"
+	"github.com/localcloud-sh/localcloud/internal/templates"
 	"github.com/spf13/cobra"
 )
 

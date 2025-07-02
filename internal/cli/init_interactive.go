@@ -14,9 +14,9 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/briandowns/spinner"
 	"github.com/fatih/color"
-	"github.com/localcloud/localcloud/internal/components"
-	"github.com/localcloud/localcloud/internal/config"
-	"github.com/localcloud/localcloud/internal/models"
+	"github.com/localcloud-sh/localcloud/internal/components"
+	"github.com/localcloud-sh/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/models"
 )
 
 // InteractiveConfig represents the configuration built during interactive init

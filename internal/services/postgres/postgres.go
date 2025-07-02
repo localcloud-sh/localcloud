@@ -8,7 +8,7 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
-	"github.com/localcloud/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/config"
 )
 
 // Service represents PostgreSQL service

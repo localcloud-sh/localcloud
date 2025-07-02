@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/localcloud/localcloud/internal/config"
-	"github.com/localcloud/localcloud/internal/docker"
+	"github.com/localcloud-sh/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/docker"
 	"github.com/spf13/cobra"
 )
 

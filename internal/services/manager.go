@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/localcloud/localcloud/internal/docker"
-	"github.com/localcloud/localcloud/internal/templates"
+	"github.com/localcloud-sh/localcloud/internal/docker"
+	"github.com/localcloud-sh/localcloud/internal/templates"
 )
 
 // ServiceConfig represents configuration for a service

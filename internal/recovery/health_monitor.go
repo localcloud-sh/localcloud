@@ -12,8 +12,8 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
-	"github.com/localcloud/localcloud/internal/config"
-	"github.com/localcloud/localcloud/internal/docker"
+	"github.com/localcloud-sh/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/docker"
 )
 
 // HealthMonitor monitors service health and triggers recovery

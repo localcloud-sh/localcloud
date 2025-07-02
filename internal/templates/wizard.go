@@ -13,7 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/localcloud/localcloud/internal/system"
+	"github.com/localcloud-sh/localcloud/internal/system"
 )
 
 // SetupWizard handles interactive template setup

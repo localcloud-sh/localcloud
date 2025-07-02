@@ -3,7 +3,7 @@ package main
 import (
 	"embed"
 
-	"github.com/localcloud/localcloud/internal/cli"
+	"github.com/localcloud-sh/localcloud/internal/cli"
 )
 
 // Embed template files

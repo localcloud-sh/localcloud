@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/localcloud/localcloud/internal/components"
-	"github.com/localcloud/localcloud/internal/config"
-	"github.com/localcloud/localcloud/internal/models"
+	"github.com/localcloud-sh/localcloud/internal/components"
+	"github.com/localcloud-sh/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/models"
 	"github.com/spf13/cobra"
 )
 

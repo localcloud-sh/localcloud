@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/localcloud/localcloud/internal/services/postgres"
-	"github.com/localcloud/localcloud/internal/services/vectordb"
+	"github.com/localcloud-sh/localcloud/internal/services/postgres"
+	"github.com/localcloud-sh/localcloud/internal/services/vectordb"
 )
 
 // PgVectorDB implements VectorDB interface using PostgreSQL with pgvector

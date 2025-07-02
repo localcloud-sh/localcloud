@@ -5,7 +5,7 @@ BINARY_NAME=localcloud
 MAIN_PATH=cmd/localcloud/main.go
 BUILD_DIR=build
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "0.1.0")
-LDFLAGS=-ldflags "-X github.com/localcloud/localcloud/internal/cli.Version=$(VERSION)"
+LDFLAGS=-ldflags "-X github.com/localcloud-sh/localcloud/internal/cli.Version=$(VERSION)"
 
 # Go related variables
 GOBASE=$(shell pwd)

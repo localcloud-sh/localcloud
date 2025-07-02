@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/localcloud/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/config"
 	"golang.ngrok.com/ngrok"
 	ngrokconfig "golang.ngrok.com/ngrok/config"
 )

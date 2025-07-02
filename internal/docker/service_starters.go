@@ -13,7 +13,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/localcloud/localcloud/internal/models"
+	"github.com/localcloud-sh/localcloud/internal/models"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )

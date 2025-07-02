@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/client"
-	"github.com/localcloud/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/config"
 )
 
 // Doctor performs system diagnostics

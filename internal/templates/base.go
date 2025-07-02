@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/localcloud/localcloud/internal/system"
+	"github.com/localcloud-sh/localcloud/internal/system"
 	"gopkg.in/yaml.v3"
 )
 

@@ -4,14 +4,14 @@ package cli
 import (
 	"context"
 	"fmt"
-	"github.com/localcloud/localcloud/internal/models"
+	"github.com/localcloud-sh/localcloud/internal/models"
 	"strings"
 
 	"github.com/briandowns/spinner"
-	"github.com/localcloud/localcloud/internal/components"
-	"github.com/localcloud/localcloud/internal/config"
-	"github.com/localcloud/localcloud/internal/docker"
-	"github.com/localcloud/localcloud/internal/network"
+	"github.com/localcloud-sh/localcloud/internal/components"
+	"github.com/localcloud-sh/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/docker"
+	"github.com/localcloud-sh/localcloud/internal/network"
 	"github.com/spf13/cobra"
 )
 

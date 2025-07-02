@@ -4,8 +4,8 @@ package cli
 import (
 	"fmt"
 	"github.com/fatih/color"
-	"github.com/localcloud/localcloud/internal/config"
-	"github.com/localcloud/localcloud/internal/models"
+	"github.com/localcloud-sh/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/models"
 	"os"
 	"os/exec"
 	"path/filepath"

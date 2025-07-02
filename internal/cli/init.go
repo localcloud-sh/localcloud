@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/briandowns/spinner"
-	"github.com/localcloud/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/config"
 	"github.com/spf13/cobra"
 )
 

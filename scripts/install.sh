@@ -19,7 +19,7 @@ if [ "$OS" = "darwin" ]; then
   # Check if Homebrew is installed
   if command -v brew >/dev/null 2>&1; then
     echo "📦 Installing LocalCloud via Homebrew..."
-    brew tap localcloud/tap
+    brew tap localcloud-sh/tap
     brew install localcloud
     exit 0
   fi

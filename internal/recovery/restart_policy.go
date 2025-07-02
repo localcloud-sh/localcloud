@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/localcloud/localcloud/internal/docker"
+	"github.com/localcloud-sh/localcloud/internal/docker"
 )
 
 // RestartPolicy defines the restart behavior

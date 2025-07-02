@@ -1,4 +1,4 @@
-module github.com/localcloud/localcloud
+module github.com/localcloud-sh/localcloud
 
 go 1.23.0
 
