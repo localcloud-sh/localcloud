@@ -65,6 +65,7 @@ func init() {
 	rootCmd.AddCommand(setupCmd) // Setup replaces init - combines initialization and configuration
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(stopCmd)
+	rootCmd.AddCommand(restartCmd) // Restart services with current configuration
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(logsCmd)
 	rootCmd.AddCommand(psCmd)

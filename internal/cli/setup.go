@@ -405,7 +405,7 @@ func runModificationSetup(cfg *config.Config, existingComponents []string) error
 		}
 
 		fmt.Println("\nNext step:")
-		fmt.Println("  lc restart    # Restart services with new configuration")
+		fmt.Println("  lc restart    # Apply configuration changes by restarting services")
 	} else {
 		fmt.Println("\nNo changes made.")
 	}
@@ -670,38 +670,129 @@ func updateCompleteConfig(cfg *config.Config, componentIDs []string) {
 		enabledComponents[comp] = true
 	}
 
-	// Clear database config if database/vector components are not selected
-	if !enabledComponents["database"] && !enabledComponents["vector"] {
+	// Handle Database configuration
+	if enabledComponents["database"] || enabledComponents["vector"] {
+		// Ensure PostgreSQL config is properly initialized if database/vector is selected
+		if cfg.Services.Database.Type == "" {
+			cfg.Services.Database = config.DatabaseConfig{
+				Type:       "postgres",
+				Version:    "16",
+				Port:       5432,
+				Extensions: []string{},
+			}
+		}
+		// Add pgvector extension if vector is selected
+		if enabledComponents["vector"] {
+			hasVector := false
+			for _, ext := range cfg.Services.Database.Extensions {
+				if ext == "pgvector" {
+					hasVector = true
+					break
+				}
+			}
+			if !hasVector {
+				cfg.Services.Database.Extensions = append(cfg.Services.Database.Extensions, "pgvector")
+			}
+		}
+	} else {
+		// Clear database config if database/vector components are not selected
 		cfg.Services.Database = config.DatabaseConfig{}
 	}
 
-	// Clear MongoDB config if mongodb component is not selected
-	if !enabledComponents["mongodb"] {
+	// Handle MongoDB configuration
+	if enabledComponents["mongodb"] {
+		// Ensure MongoDB config is properly initialized if mongodb is selected
+		if cfg.Services.MongoDB.Type == "" {
+			cfg.Services.MongoDB = config.MongoDBConfig{
+				Type:        "mongodb",
+				Version:     "7.0",
+				Port:        27017,
+				ReplicaSet:  false,
+				AuthEnabled: true,
+			}
+		}
+	} else {
+		// Clear MongoDB config if mongodb component is not selected
 		cfg.Services.MongoDB = config.MongoDBConfig{}
 	}
 
-	// Clear cache config if cache component is not selected
-	if !enabledComponents["cache"] {
+	// Handle Cache configuration
+	if enabledComponents["cache"] {
+		// Ensure cache config is properly initialized if cache is selected
+		if cfg.Services.Cache.Type == "" {
+			cfg.Services.Cache = config.CacheConfig{
+				Type:            "redis",
+				Port:            6379,
+				MaxMemory:       "512mb",
+				MaxMemoryPolicy: "allkeys-lru",
+				Persistence:     false,
+			}
+		}
+	} else {
+		// Clear cache config if cache component is not selected
 		cfg.Services.Cache = config.CacheConfig{}
 	}
 
-	// Clear queue config if queue component is not selected
-	if !enabledComponents["queue"] {
+	// Handle Queue configuration
+	if enabledComponents["queue"] {
+		// Ensure queue config is properly initialized if queue is selected
+		if cfg.Services.Queue.Type == "" {
+			cfg.Services.Queue = config.QueueConfig{
+				Type:            "redis",
+				Port:            6380,
+				MaxMemory:       "1gb",
+				MaxMemoryPolicy: "noeviction",
+				Persistence:     true,
+				AppendOnly:      true,
+				AppendFsync:     "everysec",
+			}
+		}
+	} else {
+		// Clear queue config if queue component is not selected
 		cfg.Services.Queue = config.QueueConfig{}
 	}
 
-	// Clear storage config if storage component is not selected
-	if !enabledComponents["storage"] {
+	// Handle Storage configuration
+	if enabledComponents["storage"] {
+		// Ensure storage config is properly initialized if storage is selected
+		if cfg.Services.Storage.Type == "" {
+			cfg.Services.Storage = config.StorageConfig{
+				Type:    "minio",
+				Port:    9000,
+				Console: 9001,
+			}
+		}
+	} else {
+		// Clear storage config if storage component is not selected
 		cfg.Services.Storage = config.StorageConfig{}
 	}
 
-	// Clear whisper config if stt component is not selected
-	if !enabledComponents["stt"] {
+	// Handle Whisper configuration
+	if enabledComponents["stt"] {
+		// Ensure whisper config is properly initialized if stt is selected
+		if cfg.Services.Whisper.Type == "" {
+			cfg.Services.Whisper = config.WhisperConfig{
+				Type: "localllama",
+				Port: 9000,
+			}
+		}
+	} else {
+		// Clear whisper config if stt component is not selected
 		cfg.Services.Whisper = config.WhisperConfig{}
 	}
 
-	// Clear AI config if no AI components are selected
-	if !enabledComponents["llm"] && !enabledComponents["embedding"] {
+	// Handle AI configuration
+	if enabledComponents["llm"] || enabledComponents["embedding"] {
+		// Ensure AI config is properly initialized if AI components are selected
+		if cfg.Services.AI.Port == 0 {
+			cfg.Services.AI = config.AIConfig{
+				Port:    11434,
+				Models:  []string{},
+				Default: "",
+			}
+		}
+	} else {
+		// Clear AI config if no AI components are selected
 		cfg.Services.AI = config.AIConfig{}
 	}
 }
