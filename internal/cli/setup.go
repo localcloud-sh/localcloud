@@ -416,12 +416,12 @@ func difference(a, b []string) []string {
 }
 
 // showSetupSummary displays what was configured
-func showSetupSummary(components []string, models map[string]string) {
+func showSetupSummary(componentIDs []string, models map[string]string) {
 	fmt.Println()
 	printSuccess("Configuration complete!")
 	fmt.Println("\nYour project includes:")
 
-	for _, compID := range components {
+	for _, compID := range componentIDs {
 		comp, err := components.GetComponent(compID)
 		if err != nil {
 			continue
