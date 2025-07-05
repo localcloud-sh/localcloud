@@ -10,6 +10,8 @@
 
 **LocalCloud transforms your laptop into a complete AI development environment.** Run GPT-level models, vector databases, and production infrastructure locally with zero cloud costs. No API keys, no usage limits, no data leaving your machine.
 
+> **New in latest version**: Simplified setup! Now just use `lc setup` to create and configure projects in one command.
+
 ## 🚦 Quick Start
 
 ### Installation
@@ -93,11 +95,11 @@ This script will:
 ### Getting Started
 
 ```bash
-# Initialize a new project
-lc init my-assistant
+# Create and configure a new project
+lc setup my-assistant
 cd my-assistant
 
-# Configure your services (interactive setup)
+# Or setup in current directory
 lc setup
 ```
 
@@ -131,7 +133,7 @@ lc start
 
 ## ✨ Key Features
 
-- **🚀 One-Command Setup**: Get started in seconds with `lc setup`
+- **🚀 One-Command Setup**: Create and configure projects with just `lc setup`
 - **💰 Zero Cloud Costs**: Everything runs locally - no API fees or usage limits
 - **🔒 Complete Privacy**: Your data never leaves your machine
 - **📦 Pre-built Templates**: Production-ready backends for common AI use cases
@@ -186,8 +188,7 @@ During `lc setup`, you can choose from pre-configured templates or customize you
 
 ### 1. Chat Assistant with Memory
 ```bash
-lc init my-assistant
-lc setup  # Select "Chat Assistant" template
+lc setup my-assistant  # Select "Chat Assistant" template
 ```
 - Conversational AI with persistent memory
 - PostgreSQL for conversation storage
@@ -196,8 +197,7 @@ lc setup  # Select "Chat Assistant" template
 
 ### 2. RAG System (Retrieval-Augmented Generation)
 ```bash
-lc init my-knowledge-base
-lc setup  # Select "RAG System" template
+lc setup my-knowledge-base  # Select "RAG System" template
 ```
 - Document ingestion and embedding
 - Vector search with pgvector
@@ -206,8 +206,7 @@ lc setup  # Select "RAG System" template
 
 ### 3. Speech-to-Text with Whisper
 ```bash
-lc init my-transcriber
-lc setup  # Select "Speech/Whisper" template
+lc setup my-transcriber  # Select "Speech/Whisper" template
 ```
 - Audio transcription API
 - Multiple language support
@@ -216,8 +215,7 @@ lc setup  # Select "Speech/Whisper" template
 
 ### 4. Custom Selection
 ```bash
-lc init my-project
-lc setup  # Choose "Custom" and select individual services
+lc setup my-project  # Choose "Custom" and select individual services
 ```
 - Pick only the services you need
 - Configure each service individually
@@ -237,13 +235,13 @@ LocalCloud Project Structure:
 
 ### Setup Flow
 
-1. **Initialize**: `lc init` creates project structure
-2. **Configure**: `lc setup` opens interactive wizard
+1. **Setup**: `lc setup [project-name]` creates project and opens interactive wizard
+   - Creates project structure (if new)
    - Choose template or custom services
    - Select AI models
    - Configure ports and resources
-3. **Start**: `lc start` launches all services
-4. **Develop**: Services are ready for your application
+2. **Start**: `lc start` launches all services
+3. **Develop**: Services are ready for your application
 
 ### Core Services
 
@@ -278,11 +276,15 @@ LocalCloud Project Structure:
 
 ### Project Commands
 ```bash
-# Initialize new project
-lc init [project-name]
+# Create and configure new project
+lc setup [project-name]
 
-# Interactive setup wizard
+# Configure existing project (in current directory)
 lc setup
+
+# Add/remove components
+lc setup --add llm
+lc setup --remove cache
 
 # Start all services
 lc start
