@@ -471,6 +471,50 @@ cleanup() {
     log_info "Cleanup complete"
 }
 
+cleanup_and_exit() {
+    local signal="$1"
+    
+    # Emergency process cleanup - kill any hanging LocalCloud processes
+    log_debug "Performing emergency process cleanup..."
+    
+    # Kill LocalCloud CLI processes
+    pkill -f "lc component" &>/dev/null || true
+    pkill -f "lc start" &>/dev/null || true  
+    pkill -f "lc stop" &>/dev/null || true
+    pkill -f "lc setup" &>/dev/null || true
+    
+    # Kill any expect processes that might be hanging
+    pkill -f "expect.*lc" &>/dev/null || true
+    
+    # Give processes time to terminate gracefully
+    sleep 1
+    
+    # Force kill if still running
+    pkill -9 -f "lc component" &>/dev/null || true
+    pkill -9 -f "expect.*lc" &>/dev/null || true
+    
+    case "$signal" in
+        "INT")
+            log_error "Interrupted by user (Ctrl+C)"
+            cleanup
+            exit 130
+            ;;
+        "EXIT")
+            cleanup
+            ;;
+        "TERM")
+            log_error "Terminated by signal"
+            cleanup
+            exit 143
+            ;;
+        *)
+            log_error "Received signal: $signal"
+            cleanup
+            exit 1
+            ;;
+    esac
+}
+
 main() {
     # Parse command line arguments
     parse_args "$@"
@@ -485,9 +529,9 @@ main() {
     check_prerequisites
     setup_environment
     
-    # Setup signal handlers
-    trap cleanup EXIT
-    trap 'log_error "Interrupted by user"; exit 130' INT TERM
+    # Setup signal handlers with proper cleanup
+    trap 'cleanup_and_exit "EXIT"' EXIT
+    trap 'cleanup_and_exit "INT"' INT TERM
     
     log_info "Starting LocalCloud component tests..."
     log_info "Components to test: ${COMPONENTS[*]}"

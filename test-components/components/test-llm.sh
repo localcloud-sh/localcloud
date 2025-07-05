@@ -12,6 +12,18 @@ source "$SCRIPT_DIR/../lib/health-monitor.sh"
 
 COMPONENT_NAME="llm"
 
+# Emergency cleanup function
+emergency_cleanup() {
+    log_debug "Emergency cleanup triggered for LLM test"
+    pkill -f "lc component" &>/dev/null || true
+    pkill -f "expect.*lc" &>/dev/null || true
+    cleanup_component "$COMPONENT_NAME" || true
+    exit 130
+}
+
+# Setup signal handlers for this test script
+trap emergency_cleanup INT TERM
+
 test_llm_component() {
     local test_start_time=$(get_epoch)
     

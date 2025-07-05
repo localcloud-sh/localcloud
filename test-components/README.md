@@ -5,11 +5,14 @@ A comprehensive, modular testing framework for LocalCloud components. This test 
 ## Overview
 
 The test suite provides:
-- **Modular testing**: Each component tested independently
-- **Event-driven readiness**: Smart service monitoring instead of fixed timeouts
+- **Modular testing**: Each component tested independently with proper isolation
+- **Event-driven readiness**: Smart service monitoring instead of fixed timeouts  
+- **Cross-platform support**: Works on macOS, Linux with native timeout handling
+- **Robust interruption**: Proper Ctrl+C handling and process cleanup
 - **GitHub Actions compatible**: Structured output for CI/CD integration
 - **Real-world testing**: Uses actual `lc` commands as users would
 - **Comprehensive coverage**: Tests all major LocalCloud components
+- **Smart dependency detection**: Understands component relationships (e.g., database ↔ vector)
 
 ## Components Tested
 
@@ -32,6 +35,21 @@ The test suite provides:
 2. **Docker**: Required for running services
 3. **Required tools**: `curl`, `jq` (optional but recommended)
 4. **Database clients** (optional): `psql`, `mongosh`, `redis-cli` for enhanced testing
+
+### Platform Compatibility
+
+The test suite works across different platforms with automatic adaptation:
+
+- **macOS**: Uses native bash timeout implementation when `timeout` is not available
+- **Linux**: Uses GNU `timeout` command when available  
+- **Windows (WSL)**: Supported through WSL with Linux compatibility
+- **GitHub Actions**: Optimized for CI/CD environments with structured output
+
+**Timeout Handling:**
+- Automatic detection of available timeout commands (`timeout`, `gtimeout`)
+- Falls back to bash-native timeout implementation on macOS
+- 60-second timeout protection for component operations
+- Proper process cleanup on interruption
 
 #### Installing LocalCloud CLI
 
@@ -336,13 +354,20 @@ Tests large language models:
 
 ### Common Issues
 
-1. **Docker not running**
+1. **Tests hanging during component addition**
+   ```bash
+   # The test suite now includes timeout protection and Ctrl+C handling
+   # If a test hangs, you can safely interrupt with Ctrl+C
+   # The system will automatically clean up hanging processes
+   ```
+
+2. **Docker not running**
    ```bash
    # Solution: Start Docker
    sudo systemctl start docker
    ```
 
-2. **LocalCloud CLI not found**
+3. **LocalCloud CLI not found**
    ```bash
    # Solution: Install LocalCloud CLI
    brew install localcloud-sh/tap/localcloud
@@ -350,16 +375,23 @@ Tests large language models:
    curl -fsSL https://raw.githubusercontent.com/localcloud-sh/localcloud/main/scripts/install.sh | bash
    ```
 
-3. **Port conflicts**
+4. **Port conflicts**
    ```bash
    # Solution: Stop conflicting services
    ./test-runner.sh --components database --no-cleanup --verbose
    ```
 
-4. **Model loading timeout (LLM/Embedding)**
+5. **Model loading timeout (LLM/Embedding)**
    ```bash
-   # Solution: Increase timeout
-   ./test-runner.sh --components llm --timeout 1200
+   # Solution: Increase timeout and use verbose mode for progress
+   ./test-runner.sh --components llm --timeout 1200 --verbose
+   ```
+
+6. **"Test isolation issue" warnings**
+   ```bash
+   # The system now understands component dependencies:
+   # - database + vector is expected (vector extends PostgreSQL)
+   # - Other combinations will still show warnings
    ```
 
 ### Debug Mode
@@ -374,6 +406,26 @@ This will:
 - Keep services running after test completion
 - Show detailed debug output
 - Allow manual inspection of service state
+
+### Monitoring Long-Running Tests
+
+For AI components (LLM, embedding) that may take time to download models:
+
+1. **Use verbose mode** to see progress updates:
+   ```bash
+   ./test-runner.sh --components llm --verbose
+   ```
+
+2. **Monitor in real-time** with the progress monitor:
+   ```bash
+   # In a separate terminal
+   ./monitor-llm-progress.sh
+   ```
+
+3. **Progress indicators**:
+   - Updates every 30 seconds during AI service startup
+   - Container activity logs in verbose mode
+   - Clear timeout information
 
 ### Log Files
 

@@ -107,13 +107,14 @@ You'll see an interactive wizard:
   Custom - Select components manually
 
 ? Select components you need: (Press <space> to select, <enter> to confirm)
-❯ ◯ [AI] LLM (Text generation) - Large language models for text generation
-  ◯ [AI] Embeddings (Semantic search) - Text embeddings for similarity
-  ◯ [Database] Database (PostgreSQL) - Standard relational database
+❯ ◯ [AI] LLM (Text generation) - Large language models for text generation, chat, and completion
+  ◯ [AI] Embeddings (Semantic search) - Text embeddings for semantic search and similarity
+  ◯ [Database] Database (PostgreSQL) - Standard relational database for data storage
   ◯ [Database] Vector Search (pgvector) - Add vector similarity search to PostgreSQL
-  ◯ [Infrastructure] Cache (Redis) - In-memory cache for sessions
-  ◯ [Infrastructure] Queue (Redis) - Job queue for background processing
-  ◯ [Infrastructure] Object Storage (MinIO) - S3-compatible storage
+  ◯ [Database] NoSQL Database (MongoDB) - Document-oriented database for flexible data storage
+  ◯ [Infrastructure] Cache (Redis) - In-memory cache for temporary data and sessions
+  ◯ [Infrastructure] Queue (Redis) - Reliable job queue for background processing
+  ◯ [Infrastructure] Object Storage (MinIO) - S3-compatible object storage for files and media
 ```
 
 ```bash
@@ -153,9 +154,6 @@ Present from your phone to any client's screen. Built-in tunneling means you can
 
 ### 💸 **The $2,000 Cloud Bill You Forgot About**
 We've all been there - spun up a demo, showed the client, forgot to tear it down. With LocalCloud, closing your laptop *is* shutting down the infrastructure.
-
-### 🎓 **Turn Lecture Recordings into Study Notes**
-Got 50 hours of lecture recordings? LocalCloud + Whisper can transcribe them all for free. Add RAG and you've got an AI study buddy that knows your entire course.
 
 ### 🔐 **When "Cloud-First" Meets "Compliance-First"**
 Healthcare, finance, government? Some data can't leave the building. LocalCloud keeps everything local while giving you cloud-level capabilities.
@@ -223,9 +221,9 @@ lc setup my-project  # Choose "Custom" and select individual services
 ```
 LocalCloud Project Structure:
 ├── .localcloud/          # Project configuration
-│   └── config.yaml       # Service configurations
-├── docker-compose.yml    # Generated service definitions
-└── .env                  # Environment variables
+│   └── config.yaml       # Service configurations and runtime settings
+├── .gitignore           # Git ignore file (excludes .localcloud from version control)
+└── your-app/            # Your application code goes here
 ```
 
 ### Setup Flow
@@ -244,18 +242,11 @@ LocalCloud Project Structure:
 |---------|-------------|--------------|
 | **AI/LLM** | Ollama with selected models | 11434 |
 | **Database** | PostgreSQL (optional pgvector extension) | 5432 |
+| **MongoDB** | Document-oriented NoSQL database | 27017 |
 | **Cache** | Redis for performance | 6379 |
 | **Queue** | Redis for job processing | 6380 |
 | **Storage** | MinIO (S3-compatible) | 9000/9001 |
 
-### AI Components
-
-| Component | Service | Use Case |
-|-----------|---------|----------|
-| **Whisper** | Speech-to-Text | Audio transcription |
-| **Piper** | Text-to-Speech | Voice synthesis |
-| **Stable Diffusion** | Image Generation | AI images |
-| **Qdrant** | Vector Database | Similarity search |
 
 ## 🛠️ System Requirements
 
@@ -407,6 +398,35 @@ lc logs postgres
 # Restart PostgreSQL
 lc service restart postgres
 ```
+
+## 🧪 Testing Components
+
+LocalCloud includes a comprehensive test suite for validating all components work correctly:
+
+```bash
+cd test-components
+
+# Test all components
+./test-runner.sh
+
+# Test specific components
+./test-runner.sh --components database,vector,llm
+
+# Test with verbose output and progress monitoring
+./test-runner.sh --components llm --verbose
+
+# GitHub Actions compatible output
+./test-runner.sh --format junit --output ./reports
+```
+
+**Key Features:**
+- ✅ **Cross-platform**: Works on macOS, Linux with automatic timeout handling
+- ✅ **Robust interruption**: Proper Ctrl+C handling and process cleanup
+- ✅ **Smart monitoring**: Event-driven readiness detection for all services
+- ✅ **CI/CD ready**: JUnit XML output for GitHub Actions integration
+- ✅ **Dependency aware**: Understands component relationships (database ↔ vector)
+
+For detailed testing documentation, see [test-components/README.md](test-components/README.md).
 
 ## 🤝 Contributing
 

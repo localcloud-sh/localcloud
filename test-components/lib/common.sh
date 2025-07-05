@@ -90,6 +90,43 @@ monitor_resources() {
 
 # Component management functions
 
+# Bash-native timeout function for systems without timeout command
+bash_timeout() {
+    local timeout_duration="$1"
+    shift
+    local command=("$@")
+    
+    # Start the command in background
+    "${command[@]}" &
+    local cmd_pid=$!
+    
+    # Start timeout monitor in background
+    (
+        sleep "$timeout_duration"
+        if kill -0 "$cmd_pid" 2>/dev/null; then
+            log_debug "Timeout reached, killing process $cmd_pid"
+            kill -TERM "$cmd_pid" 2>/dev/null || true
+            sleep 2
+            kill -KILL "$cmd_pid" 2>/dev/null || true
+        fi
+    ) &
+    local timeout_pid=$!
+    
+    # Wait for command to complete
+    local exit_code=0
+    if wait "$cmd_pid" 2>/dev/null; then
+        exit_code=0
+    else
+        exit_code=$?
+    fi
+    
+    # Clean up timeout monitor
+    kill "$timeout_pid" 2>/dev/null || true
+    wait "$timeout_pid" 2>/dev/null || true
+    
+    return $exit_code
+}
+
 # Ensure clean component setup by removing all existing components
 ensure_clean_component_setup() {
     log_debug "Checking for existing components to remove..."
@@ -140,27 +177,72 @@ setup_component() {
     # Add component
     log_info "Adding component: $component"
     
-    # Try different approaches to add the component
+    # Try different approaches to add the component with timeout protection
     local add_success=false
+    local timeout_cmd=""
     
-    # Approach 1: Try with --non-interactive flag
-    if lc component add "$component" --non-interactive &>/dev/null; then
+    # Determine which timeout mechanism to use
+    if command -v timeout &>/dev/null; then
+        timeout_cmd="timeout 60"
+    elif command -v gtimeout &>/dev/null; then
+        timeout_cmd="gtimeout 60"
+    else
+        log_debug "Using bash-native timeout implementation"
+        timeout_cmd="bash_timeout 60"
+    fi
+    
+    log_debug "Attempting to add component with timeout protection..."
+    
+    # Show progress message for components that may take time
+    if [[ "$component" =~ ^(llm|embedding|ai)$ ]]; then
+        log_info "Adding $component component (this may take a moment for model setup)..."
+    fi
+    
+    # Approach 1: Try with automated responses and timeout
+    log_debug "Trying automated responses with timeout..."
+    if $timeout_cmd bash -c "echo -e 'y\ny\ny\ny\ny\ny\ny\ny\ny\ny' | lc component add '$component'" &>/dev/null; then
         add_success=true
-    # Approach 2: Try without --non-interactive flag
-    elif lc component add "$component" &>/dev/null; then
-        add_success=true
-    # Approach 3: Try with automated yes responses
-    elif echo -e "y\ny\ny\ny\ny" | lc component add "$component" &>/dev/null; then
-        add_success=true
-    # Approach 4: Try with expect if available
-    elif command -v expect &>/dev/null; then
-        expect -c "
+        log_debug "Component added successfully with automated responses"
+    fi
+    
+    # Approach 2: Try with --non-interactive flag if available and not already successful
+    if [[ "$add_success" == "false" ]]; then
+        log_debug "Trying --non-interactive flag with timeout..."
+        if $timeout_cmd lc component add "$component" --non-interactive &>/dev/null; then
+            add_success=true
+            log_debug "Component added successfully with --non-interactive flag"
+        fi
+    fi
+    
+    # Approach 3: Try with expect if available and not already successful
+    if [[ "$add_success" == "false" ]] && command -v expect &>/dev/null; then
+        log_debug "Trying expect with timeout..."
+        if $timeout_cmd expect -c "
+            set timeout 30
             spawn lc component add $component
             expect {
-                \"*?*\" { send \"y\r\"; exp_continue }
-                eof
+                -re \".*\\?.*\" { send \"y\r\"; exp_continue }
+                -re \".*\\(y/n\\).*\" { send \"y\r\"; exp_continue }
+                -re \".*\\(Y/n\\).*\" { send \"y\r\"; exp_continue }
+                -re \".*yes/no.*\" { send \"yes\r\"; exp_continue }
+                -re \".*proceed.*\" { send \"y\r\"; exp_continue }
+                -re \".*continue.*\" { send \"y\r\"; exp_continue }
+                timeout { exit 1 }
+                eof { exit 0 }
             }
-        " &>/dev/null && add_success=true
+        " &>/dev/null; then
+            add_success=true
+            log_debug "Component added successfully with expect"
+        fi
+    fi
+    
+    # Approach 4: Last resort with shorter timeout
+    if [[ "$add_success" == "false" ]]; then
+        log_warning "Final attempt with shorter timeout..."
+        if bash_timeout 30 bash -c "echo -e 'y\ny\ny\ny\ny\ny\ny\ny\ny\ny' | lc component add '$component'" &>/dev/null; then
+            add_success=true
+            log_debug "Component added successfully with shorter timeout"
+        fi
     fi
     
     if [[ "$add_success" == "true" ]]; then
@@ -179,11 +261,35 @@ setup_component() {
             other_enabled=$(lc component list 2>/dev/null | grep "Enabled" | grep -v "^$component" || echo "")
             
             if [[ -n "$other_enabled" ]]; then
-                log_warning "Test isolation issue: Other components are also enabled:"
-                echo "$other_enabled" | while read -r line; do
-                    log_warning "  $line"
-                done
-                log_warning "This may cause the test to start unexpected services"
+                # Filter out expected component dependencies to avoid false warnings
+                local unexpected_components=""
+                
+                case "$component" in
+                    "database")
+                        # Database test: vector is expected (same PostgreSQL instance)
+                        unexpected_components=$(echo "$other_enabled" | grep -v "^vector" || echo "")
+                        ;;
+                    "vector")
+                        # Vector test: database is expected (vector extends PostgreSQL)
+                        unexpected_components=$(echo "$other_enabled" | grep -v "^database" || echo "")
+                        ;;
+                    *)
+                        # Other components: no expected dependencies
+                        unexpected_components="$other_enabled"
+                        ;;
+                esac
+                
+                if [[ -n "$unexpected_components" ]]; then
+                    log_warning "Test isolation issue: Other components are also enabled:"
+                    echo "$unexpected_components" | while read -r line; do
+                        if [[ -n "$line" ]]; then
+                            log_warning "  $line"
+                        fi
+                    done
+                    log_warning "This may cause the test to start unexpected services"
+                else
+                    log_debug "Test isolation confirmed: Only $component (and expected dependencies) enabled"
+                fi
             else
                 log_debug "Test isolation confirmed: Only $component is enabled"
             fi
