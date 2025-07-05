@@ -1,12 +1,14 @@
 # Contributing to LocalCloud
 
-Welcome! We're excited to have you contribute to LocalCloud. This guide will help you get started with development and understand our contribution process.
+We're excited to have you contribute to LocalCloud! This guide will help you get started with development and understand our contribution process.
+
+> **Note**: For questions or discussions, check out [GitHub Discussions](https://github.com/localcloud-sh/localcloud/discussions) or email us at [dev@localcloud.sh](mailto:dev@localcloud.sh).
 
 ## Table of Contents
 - [Development Setup](#development-setup)
 - [Architecture Overview](#architecture-overview)
 - [Making Changes](#making-changes)
-- [Adding Templates](#adding-templates)
+- [Adding Services](#adding-new-services)
 - [Testing](#testing)
 - [Pull Request Process](#pull-request-process)
 - [Community Guidelines](#community-guidelines)
@@ -16,7 +18,7 @@ Welcome! We're excited to have you contribute to LocalCloud. This guide will hel
 ### Prerequisites
 - Go 1.21 or later
 - Docker Desktop
-- Node.js 18+ (for future frontend templates)
+- Node.js 18+ (for development tools)
 - Make
 
 ### Getting Started
@@ -108,7 +110,7 @@ docs(readme): update installation instructions
 
 ## Adding New Services
 
-LocalCloud MVP focuses on infrastructure services. Here's how to add a new service:
+LocalCloud supports various AI, database, and infrastructure services. Here's how to add a new service:
 
 ### Service Implementation
 
@@ -239,16 +241,17 @@ make test-coverage
 
 ### Getting Help
 
-- **GitHub Issues**: Report bugs or request features
-- **GitHub Discussions**: Ask questions or share ideas
-- **Discord**: Join our community (coming soon)
+- 🐛 **[GitHub Issues](https://github.com/localcloud-sh/localcloud/issues)** - Bug reports and feature requests
+- 💬 **[GitHub Discussions](https://github.com/localcloud-sh/localcloud/discussions)** - Questions, ideas, and community chat
+- 📧 **[dev@localcloud.sh](mailto:dev@localcloud.sh)** - Direct contact for collaboration
 
 ### Recognition
 
 Contributors are recognized in:
-- README contributors section
-- Release notes
-- Community highlights
+- 🏆 **Contributors section** in README
+- 📝 **Release notes** for each version
+- 🌟 **Community highlights** and social media
+- 🎯 **Special thanks** in documentation
 
 ## Development Tools
 
@@ -272,9 +275,9 @@ localcloud/
 ├── internal/            # Private packages
 │   ├── cli/            # Command implementations
 │   │   ├── root.go     # Root command
-│   │   ├── init.go     # Init command
-│   │   ├── setup.go    # Setup wizard
-│   │   ├── start.go    # Start services
+│   │   ├── setup.go    # Setup command
+│   │   ├── start.go    # Start command
+│   │   ├── status.go   # Status command
 │   │   └── ...
 │   ├── docker/         # Docker management
 │   │   ├── client.go   # Docker client
@@ -297,6 +300,12 @@ localcloud/
 
 ---
 
-Thank you for contributing to LocalCloud! Together, we're making AI development accessible to everyone. 🚀
+<div align="center">
 
-**LocalCloud** - Ship AI Products Before Your Coffee Gets Cold
+**Thank you for contributing to LocalCloud!** 🚀
+
+Together, we're making AI development accessible to everyone.
+
+[Website](https://localcloud.sh) • [Documentation](https://docs.localcloud.sh) • [GitHub](https://github.com/localcloud-sh/localcloud) • [Contact](mailto:dev@localcloud.sh)
+
+</div>

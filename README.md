@@ -43,14 +43,14 @@ brew install localcloud-sh/tap/localcloud
 
 Apple Silicon:
 ```bash
-curl -L https://github.com/localcloud-sh/localcloud/releases/latest/download/localcloud-darwin-arm64.tar.gz | tar xz
+curl -L https://localcloud.sh/releases/darwin-arm64 | tar xz
 sudo install -m 755 localcloud-darwin-arm64 /usr/local/bin/localcloud
 sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
 ```
 
 Intel:
 ```bash
-curl -L https://github.com/localcloud-sh/localcloud/releases/latest/download/localcloud-darwin-amd64.tar.gz | tar xz
+curl -L https://localcloud.sh/releases/darwin-amd64 | tar xz
 sudo install -m 755 localcloud-darwin-amd64 /usr/local/bin/localcloud
 sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
 ```
@@ -69,14 +69,14 @@ brew install localcloud-sh/tap/localcloud
 
 AMD64:
 ```bash
-curl -L https://github.com/localcloud-sh/localcloud/releases/latest/download/localcloud-linux-amd64.tar.gz | tar xz
+curl -L https://localcloud.sh/releases/linux-amd64 | tar xz
 sudo install -m 755 localcloud-linux-amd64 /usr/local/bin/localcloud
 sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
 ```
 
 ARM64:
 ```bash
-curl -L https://github.com/localcloud-sh/localcloud/releases/latest/download/localcloud-linux-arm64.tar.gz | tar xz
+curl -L https://localcloud.sh/releases/linux-arm64 | tar xz
 sudo install -m 755 localcloud-linux-arm64 /usr/local/bin/localcloud
 sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
 ```
@@ -100,7 +100,7 @@ sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
 For macOS and Linux, you can also use our install script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/localcloud-sh/localcloud/main/scripts/install.sh | bash
+curl -fsSL https://localcloud.sh/install | bash
 ```
 
 This script will:
@@ -454,63 +454,78 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 
 ## 📖 Documentation
 
-- **Quick Start Guide**: [docs/getting-started.md](docs/getting-started.md)
-- **API Reference**: [docs/api-reference.md](docs/api-reference.md)
-- **Template Guide**: [docs/templates.md](docs/templates.md)
-- **Troubleshooting**: [docs/troubleshooting.md](docs/troubleshooting.md)
+**[docs.localcloud.sh](https://docs.localcloud.sh)** - Complete documentation, CLI reference, and examples
 
-## 🗺️ Roadmap
+## 🚀 Future Work
 
-### ✅ Phase 1 - MVP (Current)
-- [x] Core CLI with `lc` alias
-- [x] Interactive setup wizard
-- [x] Docker service orchestration
-- [x] PostgreSQL with pgvector
-- [x] Model management
-- [x] Service templates
-- [x] Service health monitoring
+We're excited about the future of local-first AI development! Here are some ideas we're exploring:
 
-### 🚧 Phase 2 - Application Layer
-- [ ] Backend code templates
-- [ ] LocalCloud SDK
-- [ ] API scaffolding
-- [ ] Migration system
+### 🎯 **High-Impact Features**
+- **Multi-Language SDKs** - Python, JavaScript, Go, and Rust client libraries
+- **Web Admin Panel** - Visual service management and monitoring dashboard
+- **Model Fine-tuning** - Train custom models on your local data
+- **Team Collaboration** - Share projects and sync configurations across teams
+- **Performance Optimization** - GPU acceleration and model quantization
+- **Enterprise Features** - SSO, audit logs, and compliance tools
 
-### 🔮 Phase 3 - Frontend & Advanced
-- [ ] Next.js frontend templates
-- [ ] Web-based admin panel
-- [ ] Mobile app support
-- [ ] Model fine-tuning
-- [ ] Kubernetes support
+### 🤔 **Community Ideas**
+- **Plugin System** - Extend LocalCloud with custom services
+- **Alternative AI Providers** - Support for Hugging Face Transformers, OpenAI-compatible APIs
+- **Cloud Sync** - Seamlessly transition from local to cloud deployment
+- **Mobile Development** - Native iOS/Android development tools
+- **Kubernetes Integration** - Deploy LocalCloud setups to K8s clusters
+- **IDE Extensions** - VS Code and JetBrains plugins for better DX
+
+### 💭 **Want to Shape the Future?**
+
+We'd love to hear your ideas! Share your thoughts:
+- 💬 **[GitHub Discussions](https://github.com/localcloud-sh/localcloud/discussions)** - Feature requests and community chat
+- 🐛 **[GitHub Issues](https://github.com/localcloud-sh/localcloud/issues)** - Bug reports and specific feature requests
+- 📧 **[dev@localcloud.sh](mailto:dev@localcloud.sh)** - Direct feedback and collaboration
+
+Your input helps us prioritize what matters most to developers building AI applications.
 
 ## 📄 License
 
-Apache License 2.0 - see [LICENSE](LICENSE) for details.
-
-### Why Apache 2.0?
-- ✅ **Enterprise-friendly** - Your legal team will actually approve it
-- ✅ **Patent protection** - Explicit patent grants protect everyone
-- ✅ **Commercial use** - Build products, sell services, no restrictions
-- ✅ **Modification** - Fork it, change it, make it yours
-- ✅ **Attribution** - Just keep the license notice
-
-Perfect for both startups building products and enterprises needing compliance.
+Licensed under Apache 2.0 - see [LICENSE](LICENSE) for details.
 
 ## 🙏 Acknowledgments
 
-LocalCloud is built on the shoulders of giants:
-- [Ollama](https://ollama.ai) for local model serving
-- [PostgreSQL](https://postgresql.org) for reliable data storage
-- [Docker](https://docker.com) for containerization
-- All the open-source AI models making this possible
+LocalCloud exists because of amazing open-source projects and communities:
+
+### 🤖 **AI & ML Infrastructure**
+- **[Ollama](https://ollama.ai)** - Our AI model serving foundation, making local LLMs accessible to everyone
+- **[Meta AI](https://ai.meta.com)** - Llama models available through Ollama
+- **[Mistral AI](https://mistral.ai)** - Mistral models available through Ollama
+- **Model creators** - All the researchers and companies who open-source their models for Ollama
+
+### 🗄️ **Database & Storage**
+- **[PostgreSQL](https://postgresql.org)** - The world's most advanced open source database
+- **[pgvector](https://github.com/pgvector/pgvector)** - Vector similarity search for PostgreSQL
+- **[MongoDB](https://mongodb.com)** - Document database for modern applications
+- **[Redis](https://redis.io)** - In-memory data structure store
+- **[MinIO](https://min.io)** - High-performance object storage
+
+### 🛠️ **Development Tools**
+- **[Docker](https://docker.com)** - Containerization that makes deployment simple
+- **[Go](https://golang.org)** - Fast, reliable, and efficient programming language
+- **[Cobra](https://github.com/spf13/cobra)** - Powerful CLI framework for Go
+
+### 🌟 **Special Thanks**
+- The **Ollama team** for creating such an elegant local AI solution
+- **Docker community** for making containerization accessible
+- All the **model creators** who chose to open-source their work
+- **Contributors and testers** who help make LocalCloud better
+
+Without these projects and their maintainers, LocalCloud wouldn't exist. We're proud to be part of the open-source ecosystem.
 
 ---
 
 <div align="center">
   <b>LocalCloud</b> - AI development at zero cost, infinite possibilities
   <br>
-  <a href="https://localcloud.ai">Website</a> • 
+  <a href="https://localcloud.sh">Website</a> • 
+  <a href="https://docs.localcloud.sh">Documentation</a> • 
   <a href="https://github.com/localcloud-sh/localcloud">GitHub</a> • 
-  <a href="https://discord.gg/localcloud">Discord</a> • 
-  <a href="https://twitter.com/localcloudai">Twitter</a>
+  <a href="mailto:dev@localcloud.sh">Contact</a>
 </div>
