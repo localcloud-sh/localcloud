@@ -4,13 +4,13 @@ package cli
 import (
 	"context"
 	"fmt"
-	"github.com/localcloud-sh/localcloud/internal/models"
 	"strings"
 
 	"github.com/briandowns/spinner"
 	"github.com/localcloud-sh/localcloud/internal/components"
 	"github.com/localcloud-sh/localcloud/internal/config"
 	"github.com/localcloud-sh/localcloud/internal/docker"
+	"github.com/localcloud-sh/localcloud/internal/models"
 	"github.com/localcloud-sh/localcloud/internal/network"
 	"github.com/spf13/cobra"
 )
@@ -42,7 +42,7 @@ func init() {
 	startCmd.Flags().BoolVar(&showInfo, "info", true, "Show connection info after start")
 }
 
-// internal/cli/start.go - Updated runStart function
+// internal/cli/start.go - Complete runStart function
 
 func runStart(cmd *cobra.Command, args []string) error {
 	if verbose {
@@ -53,7 +53,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	// Check if project is initialized
 	if !IsProjectInitialized() {
-		return fmt.Errorf("no LocalCloud project found. Run 'localcloud init' first")
+		printError("No LocalCloud project found")
+		fmt.Println("\nTo create a new project:")
+		fmt.Printf("  %s\n", infoColor("lc init my-project    # Create project"))
+		fmt.Printf("  %s\n", infoColor("lc init               # Initialize here"))
+		fmt.Println("\nFor quick setup:")
+		fmt.Printf("  %s\n", infoColor("lc init --interactive # Create and configure"))
+		return fmt.Errorf("project not initialized")
 	}
 
 	// Get config
@@ -66,24 +72,25 @@ func runStart(cmd *cobra.Command, args []string) error {
 	enabledComponents := getEnabledComponents(cfg)
 	if len(enabledComponents) == 0 {
 		// No components configured - show helpful message
-		fmt.Println(warningColor("No components configured in this project."))
-		fmt.Println("\nThis project was created without any components.")
-		fmt.Println("To configure components, run:")
-		fmt.Println("  • lc setup")
-		fmt.Println("  • Or: lc component add <component-id>")
+		printWarning("No components configured")
+		fmt.Println("\nThis project has no components selected.")
+		fmt.Println("\nTo configure components:")
+		fmt.Printf("  %s\n", infoColor("lc setup              # Interactive configuration"))
+		fmt.Printf("  %s\n", infoColor("lc setup --add llm    # Add specific component"))
 		fmt.Println("\nAvailable components:")
-		fmt.Println("  • llm        - Large language models")
-		fmt.Println("  • embedding  - Text embeddings")
-		fmt.Println("  • vector     - Vector database (pgvector)")
-		fmt.Println("  • cache      - Redis cache")
-		fmt.Println("  • queue      - Redis queue")
-		fmt.Println("  • storage    - Object storage (MinIO)")
+		fmt.Println("  • llm        - Large language models for text generation")
+		fmt.Println("  • embedding  - Text embeddings for semantic search")
+		fmt.Println("  • vector     - Vector database (PostgreSQL + pgvector)")
+		fmt.Println("  • cache      - Redis cache for performance")
+		fmt.Println("  • queue      - Redis queue for job processing")
+		fmt.Println("  • storage    - Object storage (MinIO S3-compatible)")
 		fmt.Println("  • stt        - Speech-to-text (Whisper)")
 		return nil
 	}
 
 	// Show what components are configured
-	fmt.Printf("Starting services for configured components: %s\n", strings.Join(enabledComponents, ", "))
+	fmt.Printf("Starting services for: %s\n", strings.Join(enabledComponents, ", "))
+	fmt.Println()
 
 	// Determine which services to start
 	var servicesToStart []string

@@ -78,7 +78,6 @@ func RunInteractiveInit(projectName string) error {
 	return nil
 }
 
-// selectProjectType prompts user to select project type
 func selectProjectType() (string, error) {
 	var options []string
 	var typeMap = make(map[string]string)
@@ -98,83 +97,14 @@ func selectProjectType() (string, error) {
 	prompt := &survey.Select{
 		Message: "What would you like to build?",
 		Options: options,
-		Help:    "Select a project template or choose Custom to select components manually",
 	}
 
 	var selected string
-	err := survey.AskOne(prompt, &selected)
-	if err != nil {
+	if err := survey.AskOne(prompt, &selected); err != nil {
 		return "", err
 	}
 
 	return typeMap[selected], nil
-}
-
-// selectComponents prompts user to select components
-func selectComponents(projectType string) ([]string, error) {
-	// If not custom, use template
-	if projectType != "custom" {
-		template, _ := components.GetTemplate(projectType)
-		return template.Components, nil
-	}
-
-	// Custom selection
-	var options []string
-	var componentMap = make(map[string]string)
-
-	// Group by category with specific order
-	categoryOrder := []struct {
-		name  string
-		color func(a ...interface{}) string
-	}{
-		{"AI", color.New(color.FgGreen).SprintFunc()},
-		{"Database", color.New(color.FgBlue).SprintFunc()},
-		{"Infrastructure", color.New(color.FgYellow).SprintFunc()},
-	}
-
-	// Component display order within categories
-	componentOrder := map[string][]string{
-		"ai":             {"llm", "embedding"}, //removed stt first
-		"database":       {"vector"},
-		"infrastructure": {"cache", "queue", "storage"},
-	}
-
-	for _, cat := range categoryOrder {
-		categoryLower := strings.ToLower(cat.name)
-
-		// Get components in specified order
-		if compIDs, ok := componentOrder[categoryLower]; ok {
-			for _, compID := range compIDs {
-				if comp, err := components.GetComponent(compID); err == nil {
-					option := fmt.Sprintf("[%s] %s - %s",
-						cat.color(cat.name), comp.Name, comp.Description)
-					options = append(options, option)
-					componentMap[option] = comp.ID
-				}
-			}
-		}
-	}
-
-	prompt := &survey.MultiSelect{
-		Message:  "Select components you need: (Press <space> to select, <enter> to confirm)",
-		Options:  options,
-		Help:     "Use arrow keys to navigate, space to select/deselect, Enter to confirm",
-		PageSize: 10,
-	}
-
-	var selectedOptions []string
-	err := survey.AskOne(prompt, &selectedOptions, survey.WithValidator(survey.MinItems(1)))
-	if err != nil {
-		return nil, err
-	}
-
-	// Map back to component IDs
-	var selected []string
-	for _, opt := range selectedOptions {
-		selected = append(selected, componentMap[opt])
-	}
-
-	return selected, nil
 }
 
 // selectModels prompts user to select models for AI components
@@ -422,175 +352,6 @@ func selectEmbeddingModel(manager *models.Manager) (string, error) {
 	return modelName, nil
 }
 
-// internal/cli/init_interactive.go - Updated selectComponentModel function
-
-func selectComponentModel(comp components.Component, manager *models.Manager) (string, error) {
-	fmt.Println()
-	fmt.Printf("%s Selecting model for %s...\n", infoColor("ℹ"), comp.Name)
-
-	// Get ALL installed models from Ollama
-	installedModels, _ := manager.List()
-	installedMap := make(map[string]bool)
-	customModels := []models.Model{} // Models not in our predefined list
-
-	// Categorize models
-	for _, m := range installedModels {
-		// Normalize model name (remove :latest tag)
-		modelBaseName := strings.TrimSuffix(m.Name, ":latest")
-		installedMap[modelBaseName] = true
-		installedMap[m.Name] = true // Also keep original name
-
-		// Check if it's a predefined model
-		isPredefined := false
-		for _, predefModel := range comp.Models {
-			if predefModel.Name == modelBaseName || predefModel.Name == m.Name {
-				isPredefined = true
-				break
-			}
-		}
-
-		// If not predefined and suitable for this component, add to custom
-		if !isPredefined {
-			if comp.ID == "llm" && !models.IsEmbeddingModel(m.Name) {
-				customModels = append(customModels, m)
-			} else if comp.ID == "embedding" && models.IsEmbeddingModel(m.Name) {
-				customModels = append(customModels, m)
-			}
-		}
-	}
-
-	// Build options
-	var options []string
-	var modelMap = make(map[string]string)
-
-	// 1. Add predefined models
-	for _, model := range comp.Models {
-		var option string
-		if installedMap[model.Name] {
-			option = fmt.Sprintf("✓ %s (%s) [Installed]", model.Name, model.Size)
-			if model.Default {
-				option += " (Recommended)"
-			}
-		} else {
-			option = fmt.Sprintf("  %s (%s) [Not installed]", model.Name, model.Size)
-			if model.Default {
-				option += " (Recommended)"
-			}
-		}
-		options = append(options, option)
-		modelMap[option] = model.Name
-	}
-
-	// 2. Add separator if there are custom models
-	if len(customModels) > 0 {
-		options = append(options, "─────────────────────────────────")
-
-		// Add custom models found in Ollama
-		for _, model := range customModels {
-			option := fmt.Sprintf("✓ %s [Installed] (Custom)", model.Name)
-			options = append(options, option)
-			modelMap[option] = model.Name
-		}
-	}
-
-	// 3. Add manual entry option
-	options = append(options, "─────────────────────────────────")
-	customOption := "💡 Enter model name manually..."
-	options = append(options, customOption)
-
-	// Find default option
-	defaultIndex := 0
-	for i, opt := range options {
-		if strings.Contains(opt, "(Recommended)") {
-			defaultIndex = i
-			break
-		}
-	}
-
-	prompt := &survey.Select{
-		Message:  fmt.Sprintf("Select %s model:", strings.ToLower(comp.Name)),
-		Options:  options,
-		Default:  options[defaultIndex],
-		Help:     "Models marked with ✓ are already installed",
-		PageSize: 15, // Show more options
-	}
-
-	var selected string
-	err := survey.AskOne(prompt, &selected)
-	if err != nil {
-		return "", err
-	}
-
-	// Handle manual entry
-	if selected == customOption {
-		var customModel string
-		inputPrompt := &survey.Input{
-			Message: "Enter model name:",
-			Help:    "e.g., llama3.2, mistral, codellama",
-		}
-		err := survey.AskOne(inputPrompt, &customModel, survey.WithValidator(survey.Required))
-		if err != nil {
-			return "", err
-		}
-
-		// Check if already installed
-		isInstalled := false
-		for _, m := range installedModels {
-			if m.Name == customModel {
-				isInstalled = true
-				break
-			}
-		}
-
-		if !isInstalled {
-			fmt.Printf("\n%s Model '%s' is not installed.\n",
-				warningColor("!"), customModel)
-
-			var install bool
-			installPrompt := &survey.Confirm{
-				Message: "Would you like to download it now?",
-				Default: true,
-			}
-			survey.AskOne(installPrompt, &install)
-
-			if install {
-				if err := downloadModel(manager, customModel); err != nil {
-					return "", fmt.Errorf("failed to download model: %w", err)
-				}
-			}
-		}
-
-		return customModel, nil
-	}
-
-	// Skip separator lines
-	if strings.Contains(selected, "─────") {
-		return "", fmt.Errorf("invalid selection")
-	}
-
-	modelName := modelMap[selected]
-
-	// If not installed, offer to download
-	if !strings.Contains(selected, "[Installed]") {
-		fmt.Printf("\n%s Model '%s' is not installed.\n",
-			warningColor("!"), modelName)
-
-		var install bool
-		installPrompt := &survey.Confirm{
-			Message: "Would you like to download it now?",
-			Default: true,
-		}
-		survey.AskOne(installPrompt, &install)
-
-		if install {
-			if err := downloadModel(manager, modelName); err != nil {
-				return "", fmt.Errorf("failed to download model: %w", err)
-			}
-		}
-	}
-
-	return modelName, nil
-}
 func checkResources(componentIDs []string, selectedModels map[string]string) error {
 	// Calculate total RAM requirement
 	totalRAM := components.CalculateRAMRequirement(componentIDs)
@@ -1030,3 +791,314 @@ func getAvailableRAM() int64 {
 	// In a real implementation, this would query actual system memory
 	return 8 * 1024 * 1024 * 1024 // 8GB default
 }
+
+// internal/cli/init_interactive.go - Fixes
+
+// 1. Fix typo: savebInteractiveConfig -> saveInteractiveConfig
+// Line 71: Change savebInteractiveConfig to saveInteractiveConfig
+
+// 2. Fix components.GetComponent usage
+// Replace this around line 125:
+func selectComponents(projectType string) ([]string, error) {
+	// If not custom, return template components
+	if projectType != "custom" {
+		if tmpl, ok := components.ProjectTemplates[projectType]; ok {
+			return tmpl.Components, nil
+		}
+	}
+
+	// Custom selection
+	var options []string
+	var componentMap = make(map[string]string)
+
+	// Order components logically
+	componentOrder := []string{"llm", "embedding", "vector", "stt", "cache", "queue", "storage"}
+
+	for _, compID := range componentOrder {
+		comp, err := components.GetComponent(compID)
+		if err != nil {
+			continue
+		}
+		option := fmt.Sprintf("%s - %s", comp.Name, comp.Description)
+		options = append(options, option)
+		componentMap[option] = compID
+	}
+
+	prompt := &survey.MultiSelect{
+		Message:  "Select components you need (Space to select, Enter to confirm):",
+		Options:  options,
+		PageSize: 10,
+	}
+
+	var selected []string
+	if err := survey.AskOne(prompt, &selected, survey.WithValidator(survey.MinItems(1))); err != nil {
+		return nil, err
+	}
+
+	// Convert selections to component IDs
+	var selectedIDs []string
+	for _, sel := range selected {
+		if compID, ok := componentMap[sel]; ok {
+			selectedIDs = append(selectedIDs, compID)
+		}
+	}
+
+	return selectedIDs, nil
+}
+
+// Fix selectComponentModel to use components.ModelOption
+func selectComponentModel(comp components.Component, manager *models.Manager) (string, error) {
+	fmt.Printf("\n%s %s\n", infoColor("Selecting model for:"), comp.Name)
+
+	// Get available models for this component
+	availableModels := comp.Models
+
+	// Check which models are already installed
+	installedModels, _ := manager.List()
+	installedMap := make(map[string]bool)
+	for _, m := range installedModels {
+		installedMap[m.Name] = true
+		// Also check without :latest suffix
+		installedMap[strings.TrimSuffix(m.Name, ":latest")] = true
+	}
+
+	// Build options
+	var options []string
+	var modelMap = make(map[string]string)
+
+	for _, model := range availableModels {
+		var option string
+		if installedMap[model.Name] {
+			option = fmt.Sprintf("✓ %s (%s) [Installed]", model.Name, model.Size)
+		} else {
+			option = fmt.Sprintf("  %s (%s) [Not installed]", model.Name, model.Size)
+		}
+
+		if model.Default {
+			option += " - Recommended"
+		}
+
+		options = append(options, option)
+		modelMap[option] = model.Name
+	}
+
+	// Add custom option
+	customOption := "  Custom model..."
+	options = append(options, customOption)
+
+	prompt := &survey.Select{
+		Message: "Select model:",
+		Options: options,
+	}
+
+	var selected string
+	if err := survey.AskOne(prompt, &selected); err != nil {
+		return "", err
+	}
+
+	// Handle custom model
+	if selected == customOption {
+		var customModel string
+		customPrompt := &survey.Input{
+			Message: "Enter custom model name:",
+			Help:    "e.g., llama3.2:3b, mistral:latest",
+		}
+		if err := survey.AskOne(customPrompt, &customModel); err != nil {
+			return "", err
+		}
+		return customModel, nil
+	}
+
+	return modelMap[selected], nil
+}
+
+// 4. Fix handleComponentModification
+func handleComponentModification(toAdd, toRemove []string) error {
+	cfg := config.Get()
+	if cfg == nil {
+		return fmt.Errorf("failed to load configuration")
+	}
+
+	// Validate component IDs
+	for _, compID := range append(toAdd, toRemove...) {
+		comp, err := components.GetComponent(compID)
+		if err != nil {
+			return fmt.Errorf("unknown component: %s", compID)
+		}
+		_ = comp // silence unused variable warning
+	}
+
+	// Handle removals
+	if len(toRemove) > 0 {
+		fmt.Printf("%s Removing components: %s\n", warningColor("⚠"), strings.Join(toRemove, ", "))
+		removeComponentsFromConfig(cfg, toRemove)
+	}
+
+	// Handle additions
+	if len(toAdd) > 0 {
+		fmt.Printf("%s Adding components: %s\n", successColor("✓"), strings.Join(toAdd, ", "))
+
+		// Select models for AI components
+		selectedModels := make(map[string]string)
+		manager := models.NewManager("http://localhost:11434")
+
+		for _, compID := range toAdd {
+			if compID == "llm" || compID == "embedding" || compID == "stt" {
+				comp, err := components.GetComponent(compID)
+				if err != nil {
+					continue
+				}
+
+				var model string
+				if compID == "embedding" {
+					model, err = selectEmbeddingModel(manager)
+				} else {
+					model, err = selectComponentModel(comp, manager)
+				}
+
+				if err != nil {
+					return err
+				}
+				selectedModels[compID] = model
+			}
+		}
+
+		updateConfig(cfg, toAdd, selectedModels)
+	}
+
+	// Save configuration
+	if err := config.Save(); err != nil {
+		return fmt.Errorf("failed to save configuration: %w", err)
+	}
+
+	printSuccess("Configuration updated!")
+	fmt.Println("\nRun 'lc restart' to apply changes.")
+
+	return nil
+}
+
+// 5. Add missing helper functions that were referenced
+func updateConfig(cfg *config.Config, componentIDs []string, selectedModels map[string]string) {
+	for _, compID := range componentIDs {
+		switch compID {
+		case "llm", "embedding":
+			if cfg.Services.AI.Port == 0 {
+				cfg.Services.AI = config.AIConfig{
+					Port:   11434,
+					Models: []string{},
+				}
+			}
+			if model, ok := selectedModels[compID]; ok {
+				cfg.Services.AI.Models = append(cfg.Services.AI.Models, model)
+			}
+
+		case "vector":
+			cfg.Services.Database = config.DatabaseConfig{
+				Type:       "postgres",
+				Version:    "16",
+				Port:       5432,
+				Extensions: []string{"pgvector"},
+			}
+
+		case "cache":
+			cfg.Services.Cache = config.CacheConfig{
+				Type:            "redis",
+				Port:            6379,
+				MaxMemory:       "512mb",
+				MaxMemoryPolicy: "allkeys-lru",
+				Persistence:     false,
+			}
+
+		case "queue":
+			cfg.Services.Queue = config.QueueConfig{
+				Type:            "redis",
+				Port:            6380,
+				MaxMemory:       "1gb",
+				MaxMemoryPolicy: "noeviction",
+				Persistence:     true,
+				AppendOnly:      true,
+				AppendFsync:     "everysec",
+			}
+
+		case "storage":
+			cfg.Services.Storage = config.StorageConfig{
+				Type:    "minio",
+				Port:    9000,
+				Console: 9001,
+			}
+
+		case "stt":
+			cfg.Services.Whisper = config.WhisperConfig{
+				Type: "localllama",
+				Port: 9000,
+			}
+			if model, ok := selectedModels[compID]; ok {
+				cfg.Services.Whisper.Model = model
+			}
+		}
+	}
+
+	// Update default AI model
+	if len(cfg.Services.AI.Models) > 0 && cfg.Services.AI.Default == "" {
+		// Set first non-embedding model as default
+		for _, model := range cfg.Services.AI.Models {
+			if !models.IsEmbeddingModel(model) {
+				cfg.Services.AI.Default = model
+				break
+			}
+		}
+	}
+}
+
+func removeComponentsFromConfig(cfg *config.Config, componentIDs []string) {
+	for _, compID := range componentIDs {
+		switch compID {
+		case "llm":
+			// Remove LLM models but keep embedding models
+			var embeddingModels []string
+			for _, model := range cfg.Services.AI.Models {
+				if models.IsEmbeddingModel(model) {
+					embeddingModels = append(embeddingModels, model)
+				}
+			}
+			cfg.Services.AI.Models = embeddingModels
+
+			// Clear default if it was an LLM
+			if cfg.Services.AI.Default != "" && !models.IsEmbeddingModel(cfg.Services.AI.Default) {
+				cfg.Services.AI.Default = ""
+			}
+
+		case "embedding":
+			// Remove embedding models but keep LLM models
+			var llmModels []string
+			for _, model := range cfg.Services.AI.Models {
+				if !models.IsEmbeddingModel(model) {
+					llmModels = append(llmModels, model)
+				}
+			}
+			cfg.Services.AI.Models = llmModels
+
+		case "vector":
+			cfg.Services.Database = config.DatabaseConfig{}
+
+		case "cache":
+			cfg.Services.Cache = config.CacheConfig{}
+
+		case "queue":
+			cfg.Services.Queue = config.QueueConfig{}
+
+		case "storage":
+			cfg.Services.Storage = config.StorageConfig{}
+
+		case "stt":
+			cfg.Services.Whisper = config.WhisperConfig{}
+		}
+	}
+
+	// If no models left, clear AI service
+	if len(cfg.Services.AI.Models) == 0 {
+		cfg.Services.AI = config.AIConfig{}
+	}
+}
+
+// progressBar function is already defined in models.go, no need to duplicate it here

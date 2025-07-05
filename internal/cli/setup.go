@@ -6,8 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/AlecAivazis/survey/v2"
+	"github.com/fatih/color"
+	"github.com/localcloud-sh/localcloud/internal/components"
 	"github.com/localcloud-sh/localcloud/internal/config"
+	"github.com/localcloud-sh/localcloud/internal/models"
 	"github.com/localcloud-sh/localcloud/internal/system"
 	"github.com/localcloud-sh/localcloud/internal/templates"
 	"github.com/spf13/cobra"
@@ -18,65 +23,299 @@ var templatesFS embed.FS
 
 var setupCmd = &cobra.Command{
 	Use:   "setup [template]",
-	Short: "Configure project or create from template",
-	Long: `Configure your LocalCloud project interactively or create a new project from a template.
+	Short: "Configure LocalCloud project components",
+	Long: `Configure your LocalCloud project interactively. 
 
-When run without arguments, it launches the interactive setup wizard for the current project.
-When run with a template name, it creates a new project from that template.
-
-Available templates:
-  chat           - ChatGPT-like interface with conversation history
-  code-assistant - AI-powered code editor and assistant
-  transcribe     - Audio/video transcription service
-  image-gen      - AI image generation interface
-  api-only       - REST API without frontend`,
-	Example: `  lc setup                   # Configure current project interactively
-  lc setup chat              # Create new project from chat template
-  lc setup api-only --port 8080`,
+This command adapts to your project state:
+- Empty project: Full component selection
+- Existing components: Modify current setup (add/remove)
+- With template: Create from predefined templates`,
+	Example: `  lc setup                   # Interactive configuration
+  lc setup --add llm         # Add specific component
+  lc setup --remove cache    # Remove component`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runSetup,
 }
 
+var (
+	setupAdd    []string
+	setupRemove []string
+)
+
 func init() {
-	// Template-specific flags
-	setupCmd.Flags().String("name", "", "Project name (for template creation)")
-	setupCmd.Flags().Int("port", 0, "API port (for template creation)")
-	setupCmd.Flags().Int("frontend-port", 0, "Frontend port (for template creation)")
-	setupCmd.Flags().String("model", "", "AI model to use (for template creation)")
-	setupCmd.Flags().Bool("skip-docker", false, "Generate files only, don't start services")
-	setupCmd.Flags().Bool("force", false, "Overwrite existing directory")
+	setupCmd.Flags().StringSliceVar(&setupAdd, "add", []string{}, "Components to add")
+	setupCmd.Flags().StringSliceVar(&setupRemove, "remove", []string{}, "Components to remove")
 }
 
 func runSetup(cmd *cobra.Command, args []string) error {
-	// If no template specified, run interactive setup for current project
-	if len(args) == 0 {
-		return runInteractiveSetup(cmd)
-	}
-
-	// Otherwise, create from template
-	return runTemplateSetup(cmd, args[0])
-}
-
-// runInteractiveSetup runs the component/model configuration wizard
-func runInteractiveSetup(cmd *cobra.Command) error {
 	// Check if project is initialized
 	if !IsProjectInitialized() {
-		return fmt.Errorf("no LocalCloud project found. Run 'lc init' first")
+		printError("No LocalCloud project found in current directory")
+		fmt.Println("\nTo create a new project:")
+		fmt.Printf("  %s\n", infoColor("lc init my-project"))
+		fmt.Printf("  %s\n", infoColor("lc init              # Initialize in current directory"))
+		return fmt.Errorf("project not initialized")
 	}
 
-	// Get config to extract project name
+	// If template specified, use template setup
+	if len(args) > 0 {
+		return runTemplateSetup(cmd, args[0])
+	}
+
+	// Handle --add and --remove flags (this function is in init_interactive.go)
+	if len(setupAdd) > 0 || len(setupRemove) > 0 {
+		return handleComponentModification(setupAdd, setupRemove)
+	}
+
+	// Load current configuration
 	cfg := config.Get()
 	if cfg == nil {
 		return fmt.Errorf("failed to load configuration")
 	}
 
-	projectName := cfg.Project.Name
-	if projectName == "" {
-		projectName = "my-project"
+	// Determine setup mode based on current state
+	existingComponents := getConfiguredComponents(cfg)
+
+	if len(existingComponents) == 0 {
+		// Empty config - run full setup
+		fmt.Println(color.New(color.FgCyan, color.Bold).Sprint("🚀 LocalCloud Project Setup"))
+		fmt.Println(strings.Repeat("━", 60))
+		fmt.Println("\nNo components configured. Let's set up your project!")
+		fmt.Println()
+
+		return runFullSetup(cfg)
+	} else {
+		// Has components - run modification setup
+		fmt.Println(color.New(color.FgCyan, color.Bold).Sprint("🔧 LocalCloud Project Configuration"))
+		fmt.Println(strings.Repeat("━", 60))
+		fmt.Printf("\nCurrent components: %s\n", strings.Join(existingComponents, ", "))
+		fmt.Println()
+
+		return runModificationSetup(cfg, existingComponents)
+	}
+}
+
+// getConfiguredComponents returns list of configured component IDs
+func getConfiguredComponents(cfg *config.Config) []string {
+	var components []string
+
+	// Check AI service
+	if cfg.Services.AI.Port > 0 {
+		// Check for LLM models
+		for _, model := range cfg.Services.AI.Models {
+			if !models.IsEmbeddingModel(model) {
+				components = appendUnique(components, "llm")
+				break
+			}
+		}
+
+		// Check for embedding models
+		for _, model := range cfg.Services.AI.Models {
+			if models.IsEmbeddingModel(model) {
+				components = appendUnique(components, "embedding")
+				break
+			}
+		}
 	}
 
-	// Run the existing interactive init function
-	return RunInteractiveInit(projectName)
+	// Check other services
+	if cfg.Services.Database.Port > 0 {
+		// Check if pgvector extension is enabled
+		for _, ext := range cfg.Services.Database.Extensions {
+			if ext == "pgvector" {
+				components = append(components, "vector")
+				break
+			}
+		}
+	}
+
+	if cfg.Services.Cache.Port > 0 {
+		components = append(components, "cache")
+	}
+
+	if cfg.Services.Queue.Port > 0 {
+		components = append(components, "queue")
+	}
+
+	if cfg.Services.Storage.Port > 0 {
+		components = append(components, "storage")
+	}
+
+	if cfg.Services.Whisper.Port > 0 {
+		components = append(components, "stt")
+	}
+
+	return components
+}
+
+// runFullSetup runs the complete setup wizard for empty projects
+func runFullSetup(cfg *config.Config) error {
+	// 1. Project type selection (function from init_interactive.go)
+	projectType, err := selectProjectType()
+	if err != nil {
+		return err
+	}
+
+	// 2. Component selection based on type (function from init_interactive.go)
+	selectedComponents, err := selectComponents(projectType)
+	if err != nil {
+		return err
+	}
+
+	// 3. Model selection for AI components (function from init_interactive.go)
+	selectedModels, err := selectModels(selectedComponents)
+	if err != nil {
+		return err
+	}
+
+	// 4. Update configuration (function from init_interactive.go)
+	updateConfig(cfg, selectedComponents, selectedModels)
+
+	// 5. Save configuration - config.Save() doesn't take parameters
+	if err := config.Save(); err != nil {
+		return fmt.Errorf("failed to save configuration: %w", err)
+	}
+
+	// 6. Show summary
+	showSetupSummary(selectedComponents, selectedModels)
+
+	return nil
+}
+
+// runModificationSetup allows adding/removing components from existing setup
+func runModificationSetup(cfg *config.Config, existingComponents []string) error {
+	// Create component options with existing ones pre-selected
+	allComponents := []string{"llm", "embedding", "vector", "cache", "queue", "storage", "stt"}
+
+	var options []string
+	var defaults []string
+	componentMap := make(map[string]string)
+
+	for _, compID := range allComponents {
+		comp, err := components.GetComponent(compID)
+		if err != nil {
+			continue
+		}
+
+		isExisting := contains(existingComponents, compID)
+		var option string
+
+		if isExisting {
+			// Show with X for existing components
+			option = fmt.Sprintf("[X] %s - %s", comp.Name, comp.Description)
+			defaults = append(defaults, option)
+		} else {
+			option = fmt.Sprintf("[ ] %s - %s", comp.Name, comp.Description)
+		}
+
+		options = append(options, option)
+		componentMap[option] = compID
+	}
+
+	// Multi-select prompt with existing components pre-selected
+	prompt := &survey.MultiSelect{
+		Message:  "Select components (Space to toggle, Enter to confirm):",
+		Options:  options,
+		Default:  defaults,
+		PageSize: 10,
+	}
+
+	var selected []string
+	if err := survey.AskOne(prompt, &selected); err != nil {
+		return err
+	}
+
+	// Convert selections back to component IDs
+	newComponents := []string{}
+	for _, sel := range selected {
+		if compID, ok := componentMap[sel]; ok {
+			newComponents = append(newComponents, compID)
+		}
+	}
+
+	// Determine what changed
+	added := difference(newComponents, existingComponents)
+	removed := difference(existingComponents, newComponents)
+
+	// Handle removals
+	if len(removed) > 0 {
+		fmt.Printf("\n%s Removing components: %s\n", warningColor("⚠"), strings.Join(removed, ", "))
+
+		// Confirm removal
+		var confirm bool
+		confirmPrompt := &survey.Confirm{
+			Message: "Are you sure you want to remove these components?",
+			Default: true,
+		}
+		if err := survey.AskOne(confirmPrompt, &confirm); err != nil {
+			return err
+		}
+
+		if !confirm {
+			return fmt.Errorf("cancelled")
+		}
+
+		// Remove components from config (function from init_interactive.go)
+		removeComponentsFromConfig(cfg, removed)
+	}
+
+	// Handle additions
+	if len(added) > 0 {
+		fmt.Printf("\n%s Adding components: %s\n", successColor("✓"), strings.Join(added, ", "))
+
+		// Select models for new AI components
+		selectedModels := make(map[string]string)
+		manager := models.NewManager("http://localhost:11434")
+
+		for _, compID := range added {
+			if compID == "llm" || compID == "embedding" || compID == "stt" {
+				comp, err := components.GetComponent(compID)
+				if err != nil {
+					continue
+				}
+
+				var model string
+				if compID == "embedding" {
+					model, err = selectEmbeddingModel(manager)
+				} else {
+					model, err = selectComponentModel(comp, manager)
+				}
+
+				if err != nil {
+					return err
+				}
+				selectedModels[compID] = model
+			}
+		}
+
+		// Update config with new components (function from init_interactive.go)
+		updateConfig(cfg, added, selectedModels)
+	}
+
+	// Save configuration
+	if err := config.Save(); err != nil {
+		return fmt.Errorf("failed to save configuration: %w", err)
+	}
+
+	// Show summary
+	if len(added) > 0 || len(removed) > 0 {
+		fmt.Println()
+		printSuccess("Configuration updated!")
+
+		if len(added) > 0 {
+			fmt.Printf("  Added:   %s\n", strings.Join(added, ", "))
+		}
+		if len(removed) > 0 {
+			fmt.Printf("  Removed: %s\n", strings.Join(removed, ", "))
+		}
+
+		fmt.Println("\nNext step:")
+		fmt.Println("  lc restart    # Restart services with new configuration")
+	} else {
+		fmt.Println("\nNo changes made.")
+	}
+
+	return nil
 }
 
 // runTemplateSetup creates a new project from template
@@ -151,6 +390,54 @@ func runTemplateSetup(cmd *cobra.Command, templateName string) error {
 	return nil
 }
 
+// Helper functions - only add functions not already defined elsewhere
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+func difference(a, b []string) []string {
+	mb := make(map[string]bool)
+	for _, x := range b {
+		mb[x] = true
+	}
+
+	var diff []string
+	for _, x := range a {
+		if !mb[x] {
+			diff = append(diff, x)
+		}
+	}
+	return diff
+}
+
+// showSetupSummary displays what was configured
+func showSetupSummary(components []string, models map[string]string) {
+	fmt.Println()
+	printSuccess("Configuration complete!")
+	fmt.Println("\nYour project includes:")
+
+	for _, compID := range components {
+		comp, err := components.GetComponent(compID)
+		if err != nil {
+			continue
+		}
+
+		fmt.Printf("  • %s", comp.Name)
+		if model, ok := models[compID]; ok {
+			fmt.Printf(" (%s)", model)
+		}
+		fmt.Println()
+	}
+
+	fmt.Println("\nNext step:")
+	fmt.Println("  lc start    # Start all services")
+}
+
 // SetupCmd creates the setup command (for external initialization)
 func SetupCmd(fs embed.FS) *cobra.Command {
 	// Store the filesystem
@@ -164,13 +451,8 @@ func TemplatesCmd() *cobra.Command {
 		Use:   "templates",
 		Short: "Manage LocalCloud templates",
 		Long:  "List and get information about available LocalCloud templates.",
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			// Initialize templates before any subcommand runs
-			return templates.InitializeTemplates(templatesFS)
-		},
 	}
 
-	// Add subcommands
 	cmd.AddCommand(templatesListCmd())
 	cmd.AddCommand(templatesInfoCmd())
 
@@ -182,25 +464,13 @@ func templatesListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List available templates",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Initialize templates first
-			if err := templates.InitializeTemplates(templatesFS); err != nil {
-				return fmt.Errorf("failed to initialize templates: %w", err)
-			}
-
-			templateList := templates.ListTemplates()
-
-			if len(templateList) == 0 {
-				fmt.Println("No templates available")
-				return nil
-			}
+			templates := templates.ListTemplates()
 
 			fmt.Println("Available Templates:")
-			fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			fmt.Println(strings.Repeat("─", 70))
 
-			for _, tmpl := range templateList {
-				fmt.Printf("%-15s %s\n", tmpl.Name, tmpl.Description)
-				fmt.Printf("               Min RAM: %s, Services: %d\n\n",
-					tmpl.MinRAM, tmpl.Services)
+			for _, t := range templates {
+				fmt.Printf("%-20s %s\n", t.Name, t.Description)
 			}
 
 			return nil
@@ -211,47 +481,20 @@ func templatesListCmd() *cobra.Command {
 func templatesInfoCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "info [template]",
-		Short: "Get detailed information about a template",
+		Short: "Show template details",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			templateName := args[0]
-
-			template, err := templates.GetTemplate(templateName)
+			template, err := templates.GetTemplate(args[0])
 			if err != nil {
 				return err
 			}
 
 			metadata := template.GetMetadata()
-
-			fmt.Printf("%s Template\n", metadata.Name)
-			fmt.Println("═══════════════════════════════════")
+			fmt.Printf("Template: %s\n", metadata.Name)
 			fmt.Printf("Description: %s\n", metadata.Description)
 			fmt.Printf("Version: %s\n", metadata.Version)
-			fmt.Println()
-			fmt.Println("Requirements:")
-			fmt.Printf("- RAM: %s minimum\n", system.FormatBytes(metadata.MinRAM))
-			fmt.Printf("- Disk: %s free space\n", system.FormatBytes(metadata.MinDisk))
-			fmt.Println("- Docker: Required")
-			fmt.Println()
-			fmt.Println("Services:")
-			for _, service := range metadata.Services {
-				fmt.Printf("- %s\n", service)
-			}
-			fmt.Println()
-			fmt.Println("Models:")
-			for _, model := range metadata.Models {
-				status := ""
-				if model.Default {
-					status = " (default)"
-				} else if model.Recommended {
-					status = " (recommended)"
-				}
-				fmt.Printf("- %s: %s, needs %s RAM%s\n",
-					model.Name,
-					system.FormatBytes(model.Size),
-					system.FormatBytes(model.MinRAM),
-					status)
-			}
+			fmt.Printf("Min RAM: %d GB\n", metadata.MinRAM/(1024*1024*1024))
+			fmt.Printf("Services: %v\n", metadata.Services)
 
 			return nil
 		},

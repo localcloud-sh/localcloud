@@ -24,22 +24,17 @@ var initCmd = &cobra.Command{
 	RunE:  runInit,
 	Example: `  lc init                    # Initialize in current directory
   lc init my-project         # Create new project directory
-  lc init --interactive      # Interactive setup wizard`,
+  lc init --interactive      # Initialize and configure components`,
 }
 
 func init() {
-	initCmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "Run interactive setup wizard")
+	initCmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "Initialize and configure components")
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
 	projectName := "my-project"
 	if len(args) > 0 {
 		projectName = args[0]
-	}
-
-	// Run interactive wizard if requested
-	if interactive {
-		return RunInteractiveInit(projectName)
 	}
 
 	// Create project directory if specified
@@ -68,7 +63,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create .localcloud directory: %w", err)
 	}
 
-	// Create config file
+	// Create config file with empty/minimal config
 	configFile := filepath.Join(configPath, "config.yaml")
 	configContent, err := config.GenerateDefault(projectName, "custom")
 	if err != nil {
@@ -98,18 +93,45 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Print success message
 	printSuccess(fmt.Sprintf("Initialized LocalCloud project: %s", projectName))
-	fmt.Println()
-	fmt.Println("Next steps:")
-	if len(args) > 0 {
-		fmt.Printf("  1. cd %s\n", projectName)
-		fmt.Println("  2. lc setup        # Configure components")
-		fmt.Println("  3. lc start        # Start services")
-	} else {
-		fmt.Println("  1. lc setup        # Configure components")
-		fmt.Println("  2. lc start        # Start services")
+
+	// If interactive flag is set, run setup immediately
+	if interactive {
+		fmt.Println()
+
+		// Change to project directory if we created one
+		if len(args) > 0 {
+			originalDir, _ := os.Getwd()
+			if err := os.Chdir(projectDir); err != nil {
+				return fmt.Errorf("failed to change directory: %w", err)
+			}
+			defer os.Chdir(originalDir)
+		}
+
+		// Run setup
+		return runSetup(cmd, []string{})
 	}
+
+	// Show next steps
 	fmt.Println()
-	fmt.Println("For more information, run: lc --help")
+	fmt.Println("✨ Project created! Next steps:")
+	fmt.Println()
+
+	if len(args) > 0 {
+		fmt.Printf("1. %s\n", infoColor(fmt.Sprintf("cd %s", projectName)))
+		fmt.Printf("2. %s\n", infoColor("lc setup        # Configure components"))
+		fmt.Printf("3. %s\n", infoColor("lc start        # Start services"))
+	} else {
+		fmt.Printf("1. %s\n", infoColor("lc setup        # Configure components"))
+		fmt.Printf("2. %s\n", infoColor("lc start        # Start services"))
+	}
+
+	fmt.Println()
+	fmt.Println("Alternative:")
+	if len(args) > 0 {
+		fmt.Printf("  %s\n", infoColor(fmt.Sprintf("lc init %s --interactive  # Redo with component setup", projectName)))
+	} else {
+		fmt.Printf("  %s\n", infoColor("lc init --interactive      # Redo with component setup"))
+	}
 
 	return nil
 }
