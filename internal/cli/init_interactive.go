@@ -4,12 +4,13 @@ package cli
 
 import (
 	"fmt"
-	"github.com/spf13/viper"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/spf13/viper"
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/briandowns/spinner"
@@ -399,8 +400,9 @@ func generateInteractiveConfig(projectName, projectType string, componentIDs []s
 	cfg := &config.Config{
 		Version: "1",
 		Project: config.ProjectConfig{
-			Name: projectName,
-			Type: projectType,
+			Name:       projectName,
+			Type:       projectType,
+			Components: componentIDs,
 		},
 		Services: config.ServicesConfig{}, // Empty services
 		Resources: config.ResourcesConfig{
@@ -494,6 +496,15 @@ func generateInteractiveConfig(projectName, projectType string, componentIDs []s
 				Console: 9001,
 			}
 
+		case "mongodb":
+			cfg.Services.MongoDB = config.MongoDBConfig{
+				Type:        "mongodb",
+				Version:     "7.0",
+				Port:        27017,
+				ReplicaSet:  false,
+				AuthEnabled: true,
+			}
+
 		case "stt":
 			cfg.Services.Whisper = config.WhisperConfig{
 				Type: "localllama",
@@ -547,6 +558,7 @@ func saveInteractiveConfig(cfg *config.Config, projectName string) error {
 	v.Set("version", cfg.Version)
 	v.Set("project.name", cfg.Project.Name)
 	v.Set("project.type", cfg.Project.Type)
+	v.Set("project.components", cfg.Project.Components)
 
 	// Set service configurations only if they're configured
 	if cfg.Services.AI.Port > 0 {
@@ -583,6 +595,14 @@ func saveInteractiveConfig(cfg *config.Config, projectName string) error {
 		v.Set("services.storage.type", cfg.Services.Storage.Type)
 		v.Set("services.storage.port", cfg.Services.Storage.Port)
 		v.Set("services.storage.console", cfg.Services.Storage.Console)
+	}
+
+	if cfg.Services.MongoDB.Type != "" {
+		v.Set("services.mongodb.type", cfg.Services.MongoDB.Type)
+		v.Set("services.mongodb.version", cfg.Services.MongoDB.Version)
+		v.Set("services.mongodb.port", cfg.Services.MongoDB.Port)
+		v.Set("services.mongodb.replica_set", cfg.Services.MongoDB.ReplicaSet)
+		v.Set("services.mongodb.auth_enabled", cfg.Services.MongoDB.AuthEnabled)
 	}
 
 	if cfg.Services.Whisper.Type != "" {
@@ -839,7 +859,7 @@ func selectComponents(projectType string) ([]string, error) {
 	var componentMap = make(map[string]string)
 
 	// Order components logically
-	componentOrder := []string{"llm", "embedding", "database", "vector", "stt", "cache", "queue", "storage"}
+	componentOrder := []string{"llm", "embedding", "database", "vector", "mongodb", "stt", "cache", "queue", "storage"}
 
 	for _, compID := range componentOrder {
 		comp, err := components.GetComponent(compID)
@@ -1024,6 +1044,32 @@ func handleComponentModification(toAdd, toRemove []string) error {
 
 // 5. Add missing helper functions that were referenced
 func updateConfig(cfg *config.Config, componentIDs []string, selectedModels map[string]string) {
+	// Helper function to check for component presence
+	contains := func(s []string, e string) bool {
+		for _, a := range s {
+			if a == e {
+				return true
+			}
+		}
+		return false
+	}
+
+	// IMPORTANT: Set the project components field - this is crucial for the system to recognize configured components
+	cfg.Project.Components = componentIDs
+
+	// Configure PostgreSQL only if 'database' or 'vector' is selected
+	if contains(componentIDs, "database") || contains(componentIDs, "vector") {
+		if cfg.Services.Database.Port == 0 {
+			cfg.Services.Database = config.DatabaseConfig{
+				Type:       "postgres",
+				Version:    "16",
+				Port:       5432,
+				Extensions: []string{},
+			}
+		}
+	}
+
+	// Configure other components
 	for _, compID := range componentIDs {
 		switch compID {
 		case "llm", "embedding":
@@ -1034,44 +1080,31 @@ func updateConfig(cfg *config.Config, componentIDs []string, selectedModels map[
 				}
 			}
 			if model, ok := selectedModels[compID]; ok {
-				cfg.Services.AI.Models = append(cfg.Services.AI.Models, model)
-			}
-
-		case "database":
-			// Add basic database without vector
-			if cfg.Services.Database.Port == 0 {
-				cfg.Services.Database = config.DatabaseConfig{
-					Type:       "postgres",
-					Version:    "16",
-					Port:       5432,
-					Extensions: []string{},
+				// Avoid adding duplicate models
+				if !contains(cfg.Services.AI.Models, model) {
+					cfg.Services.AI.Models = append(cfg.Services.AI.Models, model)
 				}
 			}
-
 		case "vector":
-			// Add pgvector extension to existing database
-			if cfg.Services.Database.Port == 0 {
-				// If database wasn't already configured, set it up with pgvector
-				cfg.Services.Database = config.DatabaseConfig{
-					Type:       "postgres",
-					Version:    "16",
-					Port:       5432,
-					Extensions: []string{"pgvector"},
-				}
-			} else {
-				// Add pgvector to existing extensions if not already present
-				hasVector := false
-				for _, ext := range cfg.Services.Database.Extensions {
-					if ext == "pgvector" {
-						hasVector = true
-						break
-					}
-				}
-				if !hasVector {
-					cfg.Services.Database.Extensions = append(cfg.Services.Database.Extensions, "pgvector")
+			// Add pgvector extension if not already present
+			hasVector := false
+			for _, ext := range cfg.Services.Database.Extensions {
+				if ext == "pgvector" {
+					hasVector = true
+					break
 				}
 			}
-
+			if !hasVector {
+				cfg.Services.Database.Extensions = append(cfg.Services.Database.Extensions, "pgvector")
+			}
+		case "mongodb":
+			cfg.Services.MongoDB = config.MongoDBConfig{
+				Type:        "mongodb",
+				Version:     "7.0",
+				Port:        27017,
+				ReplicaSet:  false,
+				AuthEnabled: true,
+			}
 		case "cache":
 			cfg.Services.Cache = config.CacheConfig{
 				Type:            "redis",
@@ -1080,7 +1113,6 @@ func updateConfig(cfg *config.Config, componentIDs []string, selectedModels map[
 				MaxMemoryPolicy: "allkeys-lru",
 				Persistence:     false,
 			}
-
 		case "queue":
 			cfg.Services.Queue = config.QueueConfig{
 				Type:            "redis",
@@ -1091,14 +1123,12 @@ func updateConfig(cfg *config.Config, componentIDs []string, selectedModels map[
 				AppendOnly:      true,
 				AppendFsync:     "everysec",
 			}
-
 		case "storage":
 			cfg.Services.Storage = config.StorageConfig{
 				Type:    "minio",
 				Port:    9000,
 				Console: 9001,
 			}
-
 		case "stt":
 			cfg.Services.Whisper = config.WhisperConfig{
 				Type: "localllama",
@@ -1112,7 +1142,6 @@ func updateConfig(cfg *config.Config, componentIDs []string, selectedModels map[
 
 	// Update default AI model
 	if len(cfg.Services.AI.Models) > 0 && cfg.Services.AI.Default == "" {
-		// Set first non-embedding model as default
 		for _, model := range cfg.Services.AI.Models {
 			if !models.IsEmbeddingModel(model) {
 				cfg.Services.AI.Default = model
@@ -1120,6 +1149,11 @@ func updateConfig(cfg *config.Config, componentIDs []string, selectedModels map[
 			}
 		}
 	}
+
+	// IMPORTANT: Ensure complete config cleanup - call the same function used in setup.go
+	// Note: This requires importing the updateCompleteConfig function or making it available
+	// For now, we'll ensure the project components are set at minimum
+	cfg.Project.Components = componentIDs
 }
 
 func removeComponentsFromConfig(cfg *config.Config, componentIDs []string) {
@@ -1176,6 +1210,9 @@ func removeComponentsFromConfig(cfg *config.Config, componentIDs []string) {
 
 		case "storage":
 			cfg.Services.Storage = config.StorageConfig{}
+
+		case "mongodb":
+			cfg.Services.MongoDB = config.MongoDBConfig{}
 
 		case "stt":
 			cfg.Services.Whisper = config.WhisperConfig{}

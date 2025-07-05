@@ -338,8 +338,39 @@ func showStartedServicesInfo(cfg *config.Config, startedServices map[string]bool
 			fmt.Printf(`      -d '{"model":"%s","prompt":"Hello world"}'`, embModel)
 			fmt.Println()
 
+		case "database":
+			fmt.Println("✓ Database (PostgreSQL)")
+			fmt.Printf("  Connection: postgresql://localhost:%d/localcloud\n", cfg.Services.Database.Port)
+			fmt.Printf("  User: localcloud / Password: localcloud\n")
+			fmt.Println("  Try:")
+			fmt.Printf("    psql postgresql://localcloud:localcloud@localhost:%d/localcloud \\\n", cfg.Services.Database.Port)
+			fmt.Println("      -c \"SELECT 'Hello from PostgreSQL!' as message;\"")
+			fmt.Println("  Or with Docker:")
+			fmt.Printf("    docker exec -it localcloud-postgres psql -U localcloud -d localcloud \\\n")
+			fmt.Println("      -c \"CREATE TABLE test (id SERIAL PRIMARY KEY, message TEXT);\"")
+			fmt.Printf("    docker exec -it localcloud-postgres psql -U localcloud -d localcloud \\\n")
+			fmt.Println("      -c \"INSERT INTO test (message) VALUES ('Hello World!');\"")
+			fmt.Printf("    docker exec -it localcloud-postgres psql -U localcloud -d localcloud \\\n")
+			fmt.Println("      -c \"SELECT * FROM test;\"")
+			fmt.Println()
+
 		case "vector":
 			PrintPgVectorServiceInfo(cfg.Services.Database.Port)
+
+		case "mongodb":
+			fmt.Println("✓ NoSQL Database (MongoDB)")
+			fmt.Printf("  Connection: mongodb://localcloud:localcloud@localhost:%d/localcloud?authSource=admin\n", cfg.Services.MongoDB.Port)
+			fmt.Println("  Try:")
+			fmt.Printf("    mongosh mongodb://localcloud:localcloud@localhost:%d/localcloud?authSource=admin \\\n", cfg.Services.MongoDB.Port)
+			fmt.Println("      --eval \"db.test.insertOne({message: 'Hello from MongoDB!', timestamp: new Date()})\"")
+			fmt.Printf("    mongosh mongodb://localcloud:localcloud@localhost:%d/localcloud?authSource=admin \\\n", cfg.Services.MongoDB.Port)
+			fmt.Println("      --eval \"db.test.find().pretty()\"")
+			fmt.Println("  Or with Docker:")
+			fmt.Printf("    docker exec -it localcloud-mongodb mongosh -u localcloud -p localcloud --authenticationDatabase admin \\\n")
+			fmt.Println("      --eval \"use localcloud; db.users.insertOne({name: 'John', age: 30, city: 'New York'})\"")
+			fmt.Printf("    docker exec -it localcloud-mongodb mongosh -u localcloud -p localcloud --authenticationDatabase admin \\\n")
+			fmt.Println("      --eval \"use localcloud; db.users.find().pretty()\"")
+			fmt.Println()
 
 		case "cache":
 			PrintRedisCacheInfo(cfg.Services.Cache.Port)
@@ -408,31 +439,55 @@ func showConnectionInfo(cfg *config.Config) {
 		}
 	}
 
-	// Database Service - check if type is configured
-	if cfg.Services.Database.Type != "" {
-		fmt.Printf("✓ PostgreSQL: postgresql://localhost:%d\n", cfg.Services.Database.Port)
-		if containsString(cfg.Services.Database.Extensions, "pgvector") {
-			fmt.Printf("  - pgvector extension enabled\n")
+	// Only show services for enabled components
+	for _, component := range enabledComponents {
+		switch component {
+		case "database":
+			if cfg.Services.Database.Type != "" {
+				fmt.Printf("✓ PostgreSQL: postgresql://localhost:%d\n", cfg.Services.Database.Port)
+				if containsString(cfg.Services.Database.Extensions, "pgvector") {
+					fmt.Printf("  - pgvector extension enabled\n")
+				}
+			}
+
+		case "vector":
+			if cfg.Services.Database.Type != "" {
+				fmt.Printf("✓ PostgreSQL: postgresql://localhost:%d\n", cfg.Services.Database.Port)
+				if containsString(cfg.Services.Database.Extensions, "pgvector") {
+					fmt.Printf("  - pgvector extension enabled\n")
+				}
+			}
+
+		case "mongodb":
+			if cfg.Services.MongoDB.Type != "" {
+				fmt.Printf("✓ MongoDB: mongodb://localcloud:localcloud@localhost:%d/localcloud?authSource=admin\n", cfg.Services.MongoDB.Port)
+				if cfg.Services.MongoDB.AuthEnabled {
+					fmt.Printf("  - Authentication enabled\n")
+				}
+				if cfg.Services.MongoDB.ReplicaSet {
+					fmt.Printf("  - Replica set enabled\n")
+				}
+			}
+
+		case "cache":
+			if cfg.Services.Cache.Type != "" {
+				fmt.Printf("✓ Redis Cache: redis://localhost:%d\n", cfg.Services.Cache.Port)
+			}
+
+		case "queue":
+			if cfg.Services.Queue.Type != "" {
+				fmt.Printf("✓ Redis Queue: redis://localhost:%d\n", cfg.Services.Queue.Port)
+				fmt.Printf("  - Persistent with AOF enabled\n")
+			}
+
+		case "storage":
+			if cfg.Services.Storage.Type != "" {
+				fmt.Printf("✓ Object Storage (MinIO): http://localhost:%d\n", cfg.Services.Storage.Port)
+				fmt.Printf("  - Console: http://localhost:%d\n", cfg.Services.Storage.Console)
+				fmt.Printf("  - Access Key: minioadmin\n")
+				fmt.Printf("  - Secret Key: minioadmin\n")
+			}
 		}
-	}
-
-	// Cache Service - check if type is configured
-	if cfg.Services.Cache.Type != "" {
-		fmt.Printf("✓ Redis Cache: redis://localhost:%d\n", cfg.Services.Cache.Port)
-	}
-
-	// Queue Service
-	if cfg.Services.Queue.Type != "" {
-		fmt.Printf("✓ Redis Queue: redis://localhost:%d\n", cfg.Services.Queue.Port)
-		fmt.Printf("  - Persistent with AOF enabled\n")
-	}
-
-	// Storage Service
-	if cfg.Services.Storage.Type != "" {
-		fmt.Printf("✓ Object Storage (MinIO): http://localhost:%d\n", cfg.Services.Storage.Port)
-		fmt.Printf("  - Console: http://localhost:%d\n", cfg.Services.Storage.Console)
-		fmt.Printf("  - Access Key: minioadmin\n")
-		fmt.Printf("  - Secret Key: minioadmin\n")
 	}
 
 	// Whisper Service

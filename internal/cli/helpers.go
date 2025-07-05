@@ -161,9 +161,9 @@ func extractPort(errStr string) string {
 	return "unknown"
 }
 
-// IsProjectInitialized checks if the current directory is a LocalCloud project
+// IsProjectInitialized checks if a project is initialized
 func IsProjectInitialized() bool {
-	configPath := filepath.Join(projectPath, ".localcloud", "config.yaml")
+	configPath := filepath.Join(".", ".localcloud", "config.yaml")
 	_, err := os.Stat(configPath)
 	return err == nil
 }
@@ -432,4 +432,33 @@ func printWarning(message string) {
 // printInfo prints an info message
 func printInfo(message string) {
 	fmt.Println(infoColor("ℹ"), message)
+}
+
+// PrintMongoDBServiceInfo prints MongoDB service information
+func PrintMongoDBServiceInfo(port int) {
+	green := color.New(color.FgGreen).SprintFunc()
+	bold := color.New(color.Bold).SprintFunc()
+	cyan := color.New(color.FgCyan).SprintFunc()
+	yellow := color.New(color.FgYellow).SprintFunc()
+
+	fmt.Printf("\n%s %s\n", green("✓"), bold("MongoDB (NoSQL Database)"))
+	fmt.Printf("  URL: %s\n", cyan(fmt.Sprintf("mongodb://localcloud:localcloud@localhost:%d/localcloud?authSource=admin", port)))
+	fmt.Printf("  Client libraries: %s\n", cyan("https://docs.mongodb.com/drivers/"))
+	fmt.Println()
+
+	fmt.Printf("  %s\n", yellow("CLI Commands:"))
+	fmt.Printf("    %s\n", cyan("lc mongo connect"))
+	fmt.Printf("    %s\n", cyan(fmt.Sprintf("mongosh mongodb://localcloud:localcloud@localhost:%d/localcloud?authSource=admin", port)))
+	fmt.Println()
+
+	fmt.Printf("  %s\n", yellow("Common Operations:"))
+	fmt.Printf("    %s\n", cyan("# Switch to database"))
+	fmt.Printf("    %s\n", cyan("use localcloud"))
+	fmt.Printf("    %s\n", cyan("# Insert document"))
+	fmt.Printf("    %s\n", cyan("db.users.insertOne({name: 'John', email: 'john@example.com'})"))
+	fmt.Printf("    %s\n", cyan("# Find documents"))
+	fmt.Printf("    %s\n", cyan("db.users.find({name: 'John'})"))
+	fmt.Printf("    %s\n", cyan("# Update document"))
+	fmt.Printf("    %s\n", cyan("db.users.updateOne({name: 'John'}, {$set: {age: 30}})"))
+	fmt.Println()
 }

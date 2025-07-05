@@ -849,3 +849,87 @@ func generateSecurePassword() string {
 	}
 	return base64.URLEncoding.EncodeToString(bytes)[:32]
 }
+
+// MongoDBServiceStarter handles MongoDB service startup
+type MongoDBServiceStarter struct {
+	manager *Manager
+}
+
+// NewMongoDBServiceStarter creates a new MongoDB service starter
+func NewMongoDBServiceStarter(m *Manager) ServiceStarter {
+	return &MongoDBServiceStarter{manager: m}
+}
+
+// Start starts the MongoDB service
+func (s *MongoDBServiceStarter) Start() error {
+	if s.manager.config.Services.MongoDB.Type == "" {
+		return nil // MongoDB not configured
+	}
+
+	// Select image version
+	version := s.manager.config.Services.MongoDB.Version
+	if version == "" {
+		version = "7.0"
+	}
+	image := fmt.Sprintf("mongo:%s", version)
+
+	// Check and pull image
+	if err := s.ensureImage(image); err != nil {
+		return err
+	}
+
+	// Create container config
+	config := ContainerConfig{
+		Name:  "localcloud-mongodb",
+		Image: image,
+		Env: map[string]string{
+			"MONGO_INITDB_ROOT_USERNAME": "localcloud",
+			"MONGO_INITDB_ROOT_PASSWORD": "localcloud",
+			"MONGO_INITDB_DATABASE":      "localcloud",
+		},
+		Ports: []PortBinding{
+			{
+				ContainerPort: "27017",
+				HostPort:      fmt.Sprintf("%d", s.manager.config.Services.MongoDB.Port),
+				Protocol:      "tcp",
+			},
+		},
+		Volumes: []VolumeMount{
+			{
+				Source: fmt.Sprintf("localcloud_%s_mongodb_data", s.manager.config.Project.Name),
+				Target: "/data/db",
+			},
+		},
+		Networks:      []string{fmt.Sprintf("localcloud_%s_default", s.manager.config.Project.Name)},
+		RestartPolicy: "unless-stopped",
+		HealthCheck: &HealthCheckConfig{
+			Test:     []string{"CMD", "mongosh", "--eval", "db.adminCommand('ping')"},
+			Interval: 10,
+			Timeout:  10,
+			Retries:  5,
+		},
+		Labels: map[string]string{
+			"com.localcloud.project": s.manager.config.Project.Name,
+			"com.localcloud.service": "mongodb",
+		},
+	}
+
+	// Create and start container
+	containerID, err := s.manager.container.Create(config)
+	if err != nil {
+		return err
+	}
+
+	if err := s.manager.container.Start(containerID); err != nil {
+		return err
+	}
+
+	// Wait for health check
+	return s.manager.container.WaitHealthy(containerID, 30*time.Second)
+}
+
+// ensureImage checks and pulls image if needed
+func (s *MongoDBServiceStarter) ensureImage(image string) error {
+	starter := &AIServiceStarter{manager: s.manager}
+	return starter.ensureImage(image)
+}

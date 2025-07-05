@@ -157,6 +157,8 @@ func (sm *ServiceManager) normalizeServiceName(name string) string {
 		return "ai"
 	case "db", "database", "postgres", "postgresql", "pg":
 		return "postgres"
+	case "mongo", "mongodb", "document", "nosql":
+		return "mongodb"
 	case "cache", "redis-cache":
 		return "cache"
 	case "queue", "redis-queue":
@@ -174,6 +176,8 @@ func (sm *ServiceManager) getServiceStarter(service string) ServiceStarter {
 		return NewAIServiceStarter(sm.manager)
 	case "postgres":
 		return NewDatabaseServiceStarter(sm.manager)
+	case "mongodb":
+		return NewMongoDBServiceStarter(sm.manager)
 	case "cache":
 		return NewCacheServiceStarter(sm.manager)
 	case "queue":
@@ -231,35 +235,13 @@ func (sm *ServiceManager) StopAll(progress chan<- ServiceProgress) error {
 func (sm *ServiceManager) startService(service string) error {
 	fmt.Printf("DEBUG: startService called for: %s\n", service)
 
-	switch service {
-	case "ai":
-		starter := NewAIServiceStarter(sm.manager)
-		fmt.Println("DEBUG: Created AIServiceStarter")
-		return starter.Start()
-	case "postgres", "database":
-		starter := NewDatabaseServiceStarter(sm.manager)
-		fmt.Println("DEBUG: Created DatabaseServiceStarter")
-		return starter.Start()
-	case "cache":
-		starter := NewCacheServiceStarter(sm.manager)
-		fmt.Println("DEBUG: Created CacheServiceStarter")
-		return starter.Start()
-	case "queue":
-		starter := NewQueueServiceStarter(sm.manager)
-		fmt.Println("DEBUG: Created QueueServiceStarter")
-		return starter.Start()
-	case "minio", "storage":
-		starter := NewStorageServiceStarter(sm.manager)
-		fmt.Println("DEBUG: Created StorageServiceStarter")
-		return starter.Start()
-	case "whisper", "stt":
-		// For now, return an error since Whisper starter not implemented
-		// starter := NewWhisperServiceStarter(sm.manager)
-		// return starter.Start()
-		return fmt.Errorf("whisper service not yet implemented")
-	default:
+	starter := sm.getServiceStarter(service)
+	if starter == nil {
 		return fmt.Errorf("unknown service: %s", service)
 	}
+
+	fmt.Printf("DEBUG: Created %T for service %s\n", starter, service)
+	return starter.Start()
 }
 
 func (sm *ServiceManager) getServiceOrder() []string {
@@ -321,6 +303,8 @@ func (sm *ServiceManager) componentsToServices(componentIDs []string) []string {
 			serviceMap["ai"] = true
 		case "vector":
 			serviceMap["postgres"] = true
+		case "mongodb", "document", "nosql":
+			serviceMap["mongodb"] = true
 		case "cache":
 			serviceMap["cache"] = true
 		case "queue":
@@ -367,6 +351,8 @@ func getServiceFromContainer(containerName string) string {
 		return "ai"
 	case "postgres", "postgresql":
 		return "postgres"
+	case "mongodb":
+		return "mongodb"
 	case "minio":
 		return "minio"
 	case "redis":
@@ -428,6 +414,8 @@ func (sm *ServiceManager) GetStatus() ([]ServiceStatus, error) {
 			port = fmt.Sprintf("%d", sm.manager.config.Services.AI.Port)
 		case "postgres", "database", "postgresql":
 			port = fmt.Sprintf("%d", sm.manager.config.Services.Database.Port)
+		case "mongodb":
+			port = fmt.Sprintf("%d", sm.manager.config.Services.MongoDB.Port)
 		case "cache", "redis-cache":
 			port = fmt.Sprintf("%d", sm.manager.config.Services.Cache.Port)
 		case "queue", "redis-queue":

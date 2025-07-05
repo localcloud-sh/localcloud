@@ -109,8 +109,8 @@ You'll see an interactive wizard:
 ? Select components you need: (Press <space> to select, <enter> to confirm)
 ❯ ◯ [AI] LLM (Text generation) - Large language models for text generation
   ◯ [AI] Embeddings (Semantic search) - Text embeddings for similarity
-  ◯ [AI] Speech-to-Text (Whisper) - Convert speech to text
-  ◯ [Database] Vector Database (pgvector) - PostgreSQL with pgvector
+  ◯ [Database] Database (PostgreSQL) - Standard relational database
+  ◯ [Database] Vector Search (pgvector) - Add vector similarity search to PostgreSQL
   ◯ [Infrastructure] Cache (Redis) - In-memory cache for sessions
   ◯ [Infrastructure] Queue (Redis) - Job queue for background processing
   ◯ [Infrastructure] Object Storage (MinIO) - S3-compatible storage
@@ -243,7 +243,7 @@ LocalCloud Project Structure:
 | Service | Description | Default Port |
 |---------|-------------|--------------|
 | **AI/LLM** | Ollama with selected models | 11434 |
-| **Database** | PostgreSQL with pgvector | 5432 |
+| **Database** | PostgreSQL (optional pgvector extension) | 5432 |
 | **Cache** | Redis for performance | 6379 |
 | **Queue** | Redis for job processing | 6380 |
 | **Storage** | MinIO (S3-compatible) | 9000/9001 |
@@ -279,7 +279,9 @@ lc setup
 
 # Add/remove components
 lc setup --add llm
+lc setup --add vector      # Add vector search to existing database
 lc setup --remove cache
+lc setup --remove vector   # Remove vector search, keep database
 
 # Start all services
 lc start

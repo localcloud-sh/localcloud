@@ -49,50 +49,69 @@ func init() {
 }
 
 func runSetup(cmd *cobra.Command, args []string) error {
-	var projectName string
-	var projectDir string
-	isNewProject := false
-
-	// Determine project name and directory
 	if len(args) > 0 {
-		// Project name provided - create new project
-		projectName = args[0]
-		projectDir = filepath.Join(projectPath, projectName)
-		isNewProject = true
+		// New project setup
+		return runNewProjectSetup(cmd, args[0])
 	} else {
-		// No project name - use current directory
-		projectDir = projectPath
-		projectName = filepath.Base(projectDir)
+		// Existing project setup
+		return runExistingProjectSetup(cmd)
+	}
+}
+
+func runNewProjectSetup(cmd *cobra.Command, projectName string) error {
+	projectDir, err := filepath.Abs(projectName)
+	if err != nil {
+		return fmt.Errorf("invalid project path: %w", err)
 	}
 
-	// Check if this is an existing project or we need to initialize
-	if !IsProjectInitialized() {
-		// For --add/--remove flags, project must exist
-		if len(setupAdd) > 0 || len(setupRemove) > 0 {
-			printError("No LocalCloud project found in current directory")
-			fmt.Println("\nTo create a new project, run:")
-			fmt.Printf("  %s\n", infoColor("lc setup"))
-			return fmt.Errorf("project not initialized")
-		}
+	// Check if directory already exists
+	if _, err := os.Stat(projectDir); !os.IsNotExist(err) {
+		return fmt.Errorf("project directory '%s' already exists", projectName)
+	}
 
-		// Initialize new project
-		if err := initializeProject(projectName, projectDir, isNewProject); err != nil {
-			return err
-		}
+	// Create project directory
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		return fmt.Errorf("failed to create project directory: %w", err)
+	}
 
-		// Change to project directory if we created one
-		if isNewProject {
-			originalDir, _ := os.Getwd()
-			if err := os.Chdir(projectDir); err != nil {
-				return fmt.Errorf("failed to change directory: %w", err)
-			}
-			defer os.Chdir(originalDir)
-		}
+	// Change to project directory
+	originalDir, _ := os.Getwd()
+	if err := os.Chdir(projectDir); err != nil {
+		return fmt.Errorf("failed to change directory: %w", err)
+	}
+	defer os.Chdir(originalDir)
 
-		// Reload config after initialization
-		if err := config.Init(""); err != nil {
-			return fmt.Errorf("failed to initialize config: %w", err)
-		}
+	// Initialize a new, empty config for this project
+	if err := config.Init(""); err != nil {
+		return fmt.Errorf("failed to initialize config: %w", err)
+	}
+
+	// Initialize project structure (.localcloud, .gitignore)
+	if err := initializeProject(projectName, ".", true); err != nil {
+		return err
+	}
+
+	// Reload config after initialization
+	if err := config.Init(""); err != nil {
+		return fmt.Errorf("failed to reload config: %w", err)
+	}
+
+	cfg := config.Get()
+	cfg.Project.Name = projectName
+
+	// Run full setup wizard
+	fmt.Println(color.New(color.FgCyan, color.Bold).Sprint("🚀 LocalCloud Project Setup"))
+	fmt.Println(strings.Repeat("━", 60))
+	fmt.Println("\nLet's configure your new LocalCloud project!")
+	fmt.Println()
+
+	return runFullSetup(cfg)
+}
+
+func runExistingProjectSetup(cmd *cobra.Command) error {
+	// Initialize config from current directory
+	if err := config.Init(""); err != nil {
+		return fmt.Errorf("failed to initialize config: %w", err)
 	}
 
 	// Handle --add and --remove flags
@@ -100,30 +119,40 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		return handleComponentModification(setupAdd, setupRemove)
 	}
 
-	// Load current configuration
 	cfg := config.Get()
 	if cfg == nil {
 		return fmt.Errorf("failed to load configuration")
 	}
 
-	// Update project name in config if needed
-	if cfg.Project.Name == "" || cfg.Project.Name == "my-project" {
-		cfg.Project.Name = projectName
+	// If no project name, use current directory name
+	if cfg.Project.Name == "" {
+		cwd, _ := os.Getwd()
+		cfg.Project.Name = filepath.Base(cwd)
 	}
 
-	// Determine setup mode based on current state
+	// Determine setup mode
 	existingComponents := getConfiguredComponents(cfg)
 
-	if len(existingComponents) == 0 {
-		// Empty config - run full setup
+	if !IsProjectInitialized() {
+		// Not a project yet, run full setup
 		fmt.Println(color.New(color.FgCyan, color.Bold).Sprint("🚀 LocalCloud Project Setup"))
 		fmt.Println(strings.Repeat("━", 60))
 		fmt.Println("\nLet's configure your LocalCloud project!")
 		fmt.Println()
 
+		// Create .localcloud dir and initial config
+		if err := initializeProject(cfg.Project.Name, ".", false); err != nil {
+			return err
+		}
+		// Reload config
+		if err := config.Init(""); err != nil {
+			return err
+		}
+		cfg = config.Get()
+
 		return runFullSetup(cfg)
 	} else {
-		// Has components - run modification setup
+		// Existing project, run modification setup
 		fmt.Println(color.New(color.FgCyan, color.Bold).Sprint("🔧 LocalCloud Project Configuration"))
 		fmt.Println(strings.Repeat("━", 60))
 		fmt.Printf("\nCurrent components: %s\n", strings.Join(existingComponents, ", "))
@@ -137,6 +166,16 @@ func runSetup(cmd *cobra.Command, args []string) error {
 func getConfiguredComponents(cfg *config.Config) []string {
 	var components []string
 
+	if cfg == nil {
+		return components
+	}
+
+	// PRIORITY 1: Use project.components field if available (this is the source of truth)
+	if len(cfg.Project.Components) > 0 {
+		return cfg.Project.Components
+	}
+
+	// FALLBACK: Check service configurations (for backward compatibility with old configs)
 	// Check AI service
 	if cfg.Services.AI.Port > 0 {
 		// Check for LLM models
@@ -157,8 +196,7 @@ func getConfiguredComponents(cfg *config.Config) []string {
 	}
 
 	// Check database services
-	if cfg.Services.Database.Port > 0 {
-		// Database is configured
+	if cfg.Services.Database.Type != "" {
 		components = append(components, "database")
 
 		// Check if pgvector extension is enabled
@@ -170,19 +208,23 @@ func getConfiguredComponents(cfg *config.Config) []string {
 		}
 	}
 
-	if cfg.Services.Cache.Port > 0 {
+	if cfg.Services.Cache.Type != "" {
 		components = append(components, "cache")
 	}
 
-	if cfg.Services.Queue.Port > 0 {
+	if cfg.Services.Queue.Type != "" {
 		components = append(components, "queue")
 	}
 
-	if cfg.Services.Storage.Port > 0 {
+	if cfg.Services.MongoDB.Type != "" {
+		components = append(components, "mongodb")
+	}
+
+	if cfg.Services.Storage.Type != "" {
 		components = append(components, "storage")
 	}
 
-	if cfg.Services.Whisper.Port > 0 {
+	if cfg.Services.Whisper.Type != "" {
 		components = append(components, "stt")
 	}
 
@@ -212,6 +254,9 @@ func runFullSetup(cfg *config.Config) error {
 	// 4. Update configuration (function from init_interactive.go)
 	updateConfig(cfg, selectedComponents, selectedModels)
 
+	// 4.5. Ensure complete config cleanup and component tracking
+	updateCompleteConfig(cfg, selectedComponents)
+
 	// 5. Save configuration - config.Save() doesn't take parameters
 	if err := config.Save(); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)
@@ -226,7 +271,7 @@ func runFullSetup(cfg *config.Config) error {
 // runModificationSetup allows adding/removing components from existing setup
 func runModificationSetup(cfg *config.Config, existingComponents []string) error {
 	// Create component options with existing ones pre-selected
-	allComponents := []string{"llm", "embedding", "database", "vector", "cache", "queue", "storage", "stt"}
+	allComponents := []string{"llm", "embedding", "database", "vector", "mongodb", "cache", "queue", "storage", "stt"}
 
 	var options []string
 	var defaults []string
@@ -338,6 +383,10 @@ func runModificationSetup(cfg *config.Config, existingComponents []string) error
 		updateConfig(cfg, added, selectedModels)
 	}
 
+	// IMPORTANT: After handling additions and removals, update the entire configuration
+	// to reflect the final component state and clear any stale configurations
+	updateCompleteConfig(cfg, newComponents)
+
 	// Save configuration
 	if err := config.Save(); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)
@@ -440,8 +489,10 @@ func runTemplateSetup(cmd *cobra.Command, templateName string) error {
 func initializeProject(projectName, projectDir string, createDir bool) error {
 	// Create project directory if needed
 	if createDir {
-		if err := os.MkdirAll(projectDir, 0755); err != nil {
-			return fmt.Errorf("failed to create project directory: %w", err)
+		if projectDir != "." {
+			if err := os.MkdirAll(projectDir, 0755); err != nil {
+				return fmt.Errorf("failed to create project directory: %w", err)
+			}
 		}
 		fmt.Printf("%s Created project directory: %s\n", successColor("✓"), projectName)
 	}
@@ -452,27 +503,31 @@ func initializeProject(projectName, projectDir string, createDir bool) error {
 		return fmt.Errorf("failed to create .localcloud directory: %w", err)
 	}
 
-	// Create initial config file
+	// Create initial config file in .localcloud
 	configFile := filepath.Join(configPath, "config.yaml")
-	configContent, err := config.GenerateDefault(projectName, "custom")
-	if err != nil {
-		return fmt.Errorf("failed to generate config: %w", err)
-	}
+	if _, err := os.Stat(configFile); os.IsNotExist(err) {
+		configContent, err := config.GenerateDefault(projectName, "custom")
+		if err != nil {
+			return fmt.Errorf("failed to generate config: %w", err)
+		}
 
-	if err := os.WriteFile(configFile, configContent, 0644); err != nil {
-		return fmt.Errorf("failed to create config file: %w", err)
+		if err := os.WriteFile(configFile, configContent, 0644); err != nil {
+			return fmt.Errorf("failed to create config file: %w", err)
+		}
 	}
 
 	// Create .gitignore
 	gitignore := filepath.Join(projectDir, ".gitignore")
-	gitignoreContent := `.localcloud/data/
+	if _, err := os.Stat(gitignore); os.IsNotExist(err) {
+		gitignoreContent := `.localcloud/data/
 .localcloud/logs/
 .localcloud/tunnels/
 .env.local
 *.log
 `
-	if err := os.WriteFile(gitignore, []byte(gitignoreContent), 0644); err != nil {
-		return fmt.Errorf("failed to create .gitignore: %w", err)
+		if err := os.WriteFile(gitignore, []byte(gitignoreContent), 0644); err != nil {
+			return fmt.Errorf("failed to create .gitignore: %w", err)
+		}
 	}
 
 	fmt.Printf("%s Initialized LocalCloud project structure\n", successColor("✓"))
@@ -600,5 +655,53 @@ func templatesInfoCmd() *cobra.Command {
 
 			return nil
 		},
+	}
+}
+
+// updateCompleteConfig ensures the configuration reflects only the selected components
+// and clears any stale service configurations
+func updateCompleteConfig(cfg *config.Config, componentIDs []string) {
+	// Set the project components field
+	cfg.Project.Components = componentIDs
+
+	// Create a map for quick lookup
+	enabledComponents := make(map[string]bool)
+	for _, comp := range componentIDs {
+		enabledComponents[comp] = true
+	}
+
+	// Clear database config if database/vector components are not selected
+	if !enabledComponents["database"] && !enabledComponents["vector"] {
+		cfg.Services.Database = config.DatabaseConfig{}
+	}
+
+	// Clear MongoDB config if mongodb component is not selected
+	if !enabledComponents["mongodb"] {
+		cfg.Services.MongoDB = config.MongoDBConfig{}
+	}
+
+	// Clear cache config if cache component is not selected
+	if !enabledComponents["cache"] {
+		cfg.Services.Cache = config.CacheConfig{}
+	}
+
+	// Clear queue config if queue component is not selected
+	if !enabledComponents["queue"] {
+		cfg.Services.Queue = config.QueueConfig{}
+	}
+
+	// Clear storage config if storage component is not selected
+	if !enabledComponents["storage"] {
+		cfg.Services.Storage = config.StorageConfig{}
+	}
+
+	// Clear whisper config if stt component is not selected
+	if !enabledComponents["stt"] {
+		cfg.Services.Whisper = config.WhisperConfig{}
+	}
+
+	// Clear AI config if no AI components are selected
+	if !enabledComponents["llm"] && !enabledComponents["embedding"] {
+		cfg.Services.AI = config.AIConfig{}
 	}
 }

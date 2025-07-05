@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v2"
 )
 
 var (
@@ -77,12 +78,108 @@ func Save() error {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
+	// Sync current instance to viper before saving
+	if instance != nil {
+		syncToViper()
+	}
+
 	// Write config
 	if err := viper.WriteConfigAs(configPath); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
 	return nil
+}
+
+// syncToViper syncs the current config instance to viper
+func syncToViper() {
+	if instance == nil {
+		return
+	}
+
+	viper.Set("version", instance.Version)
+	viper.Set("project.name", instance.Project.Name)
+	viper.Set("project.type", instance.Project.Type)
+	viper.Set("project.components", instance.Project.Components)
+
+	// Helper function to check if component is selected
+	isComponentSelected := func(componentID string) bool {
+		for _, comp := range instance.Project.Components {
+			if comp == componentID {
+				return true
+			}
+		}
+		return false
+	}
+
+	// AI service - only write if AI components are selected
+	if (isComponentSelected("llm") || isComponentSelected("embedding") || isComponentSelected("stt")) && instance.Services.AI.Port > 0 {
+		viper.Set("services.ai.port", instance.Services.AI.Port)
+		viper.Set("services.ai.models", instance.Services.AI.Models)
+		viper.Set("services.ai.default", instance.Services.AI.Default)
+	}
+
+	// Database - only write if database or vector component is selected
+	if (isComponentSelected("database") || isComponentSelected("vector")) && instance.Services.Database.Type != "" {
+		viper.Set("services.database.type", instance.Services.Database.Type)
+		viper.Set("services.database.version", instance.Services.Database.Version)
+		viper.Set("services.database.port", instance.Services.Database.Port)
+		viper.Set("services.database.extensions", instance.Services.Database.Extensions)
+	}
+
+	// Cache - only write if cache component is selected
+	if isComponentSelected("cache") && instance.Services.Cache.Type != "" {
+		viper.Set("services.cache.type", instance.Services.Cache.Type)
+		viper.Set("services.cache.port", instance.Services.Cache.Port)
+		viper.Set("services.cache.maxmemory", instance.Services.Cache.MaxMemory)
+		viper.Set("services.cache.maxmemory_policy", instance.Services.Cache.MaxMemoryPolicy)
+		viper.Set("services.cache.persistence", instance.Services.Cache.Persistence)
+	}
+
+	// Queue - only write if queue component is selected
+	if isComponentSelected("queue") && instance.Services.Queue.Type != "" {
+		viper.Set("services.queue.type", instance.Services.Queue.Type)
+		viper.Set("services.queue.port", instance.Services.Queue.Port)
+		viper.Set("services.queue.maxmemory", instance.Services.Queue.MaxMemory)
+		viper.Set("services.queue.maxmemory_policy", instance.Services.Queue.MaxMemoryPolicy)
+		viper.Set("services.queue.persistence", instance.Services.Queue.Persistence)
+		viper.Set("services.queue.appendonly", instance.Services.Queue.AppendOnly)
+		viper.Set("services.queue.appendfsync", instance.Services.Queue.AppendFsync)
+	}
+
+	// Storage - only write if storage component is selected
+	if isComponentSelected("storage") && instance.Services.Storage.Type != "" {
+		viper.Set("services.storage.type", instance.Services.Storage.Type)
+		viper.Set("services.storage.port", instance.Services.Storage.Port)
+		viper.Set("services.storage.console", instance.Services.Storage.Console)
+	}
+
+	// MongoDB - only write if mongodb component is selected
+	if isComponentSelected("mongodb") && instance.Services.MongoDB.Type != "" {
+		viper.Set("services.mongodb.type", instance.Services.MongoDB.Type)
+		viper.Set("services.mongodb.version", instance.Services.MongoDB.Version)
+		viper.Set("services.mongodb.port", instance.Services.MongoDB.Port)
+		viper.Set("services.mongodb.replica_set", instance.Services.MongoDB.ReplicaSet)
+		viper.Set("services.mongodb.auth_enabled", instance.Services.MongoDB.AuthEnabled)
+	}
+
+	//// Whisper
+	//if instance.Services.Whisper.Type != "" {
+	//	viper.Set("services.whisper.type", instance.Services.Whisper.Type)
+	//	viper.Set("services.whisper.port", instance.Services.Whisper.Port)
+	//	viper.Set("services.whisper.model", instance.Services.Whisper.Model)
+	//}
+
+	// Resources
+	viper.Set("resources.memory_limit", instance.Resources.MemoryLimit)
+	viper.Set("resources.cpu_limit", instance.Resources.CPULimit)
+
+	// Connectivity
+	viper.Set("connectivity.enabled", instance.Connectivity.Enabled)
+	viper.Set("connectivity.tunnel.provider", instance.Connectivity.Tunnel.Provider)
+
+	// CLI
+	viper.Set("cli.show_service_info", instance.CLI.ShowServiceInfo)
 }
 
 // GetDefaults returns minimal default configuration
@@ -119,6 +216,7 @@ func setDefaults() {
 	viper.SetDefault("version", defaults.Version)
 	viper.SetDefault("project.name", defaults.Project.Name)
 	viper.SetDefault("project.type", defaults.Project.Type)
+	viper.SetDefault("project.components", defaults.Project.Components)
 
 	// AI service defaults
 	viper.SetDefault("services.ai.port", defaults.Services.AI.Port)
@@ -151,6 +249,13 @@ func setDefaults() {
 	viper.SetDefault("services.storage.port", defaults.Services.Storage.Port)
 	viper.SetDefault("services.storage.console", defaults.Services.Storage.Console)
 
+	// MongoDB defaults
+	viper.SetDefault("services.mongodb.type", defaults.Services.MongoDB.Type)
+	viper.SetDefault("services.mongodb.version", defaults.Services.MongoDB.Version)
+	viper.SetDefault("services.mongodb.port", defaults.Services.MongoDB.Port)
+	viper.SetDefault("services.mongodb.replica_set", defaults.Services.MongoDB.ReplicaSet)
+	viper.SetDefault("services.mongodb.auth_enabled", defaults.Services.MongoDB.AuthEnabled)
+
 	// Resource defaults
 	viper.SetDefault("resources.memory_limit", defaults.Resources.MemoryLimit)
 	viper.SetDefault("resources.cpu_limit", defaults.Resources.CPULimit)
@@ -168,7 +273,7 @@ func GetViper() *viper.Viper {
 	return viper.GetViper()
 }
 
-// GenerateDefault generates a default configuration file
+// GenerateDefault generates a default configuration file content as a byte slice
 func GenerateDefault(projectName, projectType string) ([]byte, error) {
 	cfg := GetDefaults()
 
@@ -180,104 +285,11 @@ func GenerateDefault(projectName, projectType string) ([]byte, error) {
 		cfg.Project.Type = projectType
 	}
 
-	// Convert to YAML
-	v := viper.New()
-	v.Set("version", cfg.Version)
-	v.Set("project", cfg.Project)
-	v.Set("services", cfg.Services)
-	v.Set("resources", cfg.Resources)
-	v.Set("connectivity", cfg.Connectivity)
-	v.Set("cli", cfg.CLI)
-
-	// Write to buffer
-	var buf strings.Builder
-	if err := v.WriteConfigAs("config.yaml"); err != nil {
-		// Fallback to manual YAML generation
-		buf.WriteString(fmt.Sprintf(`version: "%s"
-project:
-  name: "%s"
-  type: "%s"
-
-services:
-  ai:
-    port: %d
-    models:
-      - %s
-    default: %s
-  
-  database:
-    type: %s
-    version: "%s"
-    port: %d
-    extensions: []
-  
-  cache:
-    type: %s
-    port: %d
-    maxmemory: %s
-    maxmemory_policy: %s
-    persistence: %v
-  
-  queue:
-    type: %s
-    port: %d
-    maxmemory: %s
-    maxmemory_policy: %s
-    persistence: %v
-    appendonly: %v
-    appendfsync: %s
-  
-  storage:
-    type: %s
-    port: %d
-    console: %d
-
-resources:
-  memory_limit: "%s"
-  cpu_limit: "%s"
-
-connectivity:
-  enabled: %v
-  mdns:
-    enabled: false
-  tunnel:
-    provider: "%s"
-
-cli:
-  show_service_info: %v
-`,
-			cfg.Version,
-			cfg.Project.Name,
-			cfg.Project.Type,
-			cfg.Services.AI.Port,
-			cfg.Services.AI.Models[0],
-			cfg.Services.AI.Default,
-			cfg.Services.Database.Type,
-			cfg.Services.Database.Version,
-			cfg.Services.Database.Port,
-			cfg.Services.Cache.Type,
-			cfg.Services.Cache.Port,
-			cfg.Services.Cache.MaxMemory,
-			cfg.Services.Cache.MaxMemoryPolicy,
-			cfg.Services.Cache.Persistence,
-			cfg.Services.Queue.Type,
-			cfg.Services.Queue.Port,
-			cfg.Services.Queue.MaxMemory,
-			cfg.Services.Queue.MaxMemoryPolicy,
-			cfg.Services.Queue.Persistence,
-			cfg.Services.Queue.AppendOnly,
-			cfg.Services.Queue.AppendFsync,
-			cfg.Services.Storage.Type,
-			cfg.Services.Storage.Port,
-			cfg.Services.Storage.Console,
-			cfg.Resources.MemoryLimit,
-			cfg.Resources.CPULimit,
-			cfg.Connectivity.Enabled,
-			cfg.Connectivity.Tunnel.Provider,
-			cfg.CLI.ShowServiceInfo,
-		))
-		return []byte(buf.String()), nil
+	// Marshal the config to YAML
+	yamlBytes, err := yaml.Marshal(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal config to YAML: %w", err)
 	}
 
-	return []byte{}, nil
+	return yamlBytes, nil
 }

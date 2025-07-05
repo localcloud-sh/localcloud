@@ -22,6 +22,7 @@ type ProjectConfig struct {
 type ServicesConfig struct {
 	AI       AIConfig       `yaml:"ai" json:"ai"`
 	Database DatabaseConfig `yaml:"database" json:"database"`
+	MongoDB  MongoDBConfig  `yaml:"mongodb" json:"mongodb"`
 	Cache    CacheConfig    `yaml:"cache" json:"cache"`
 	Queue    QueueConfig    `yaml:"queue" json:"queue"`
 	Storage  StorageConfig  `yaml:"storage" json:"storage"`
@@ -68,6 +69,15 @@ type StorageConfig struct {
 	Type    string `yaml:"type" json:"type"`
 	Port    int    `yaml:"port" json:"port"`
 	Console int    `yaml:"console" json:"console"`
+}
+
+// MongoDBConfig represents MongoDB service configuration
+type MongoDBConfig struct {
+	Type        string `yaml:"type" json:"type"`
+	Version     string `yaml:"version" json:"version"`
+	Port        int    `yaml:"port" json:"port"`
+	ReplicaSet  bool   `yaml:"replica_set" json:"replica_set"`
+	AuthEnabled bool   `yaml:"auth_enabled" json:"auth_enabled"`
 }
 
 // ResourcesConfig represents resource limits configuration

@@ -97,6 +97,14 @@ var Registry = map[string]Component{
 			"depends_on": "database",
 		},
 	},
+	"mongodb": {
+		ID:          "mongodb",
+		Name:        "NoSQL Database (MongoDB)",
+		Description: "Document-oriented database for flexible data storage",
+		Category:    "database",
+		Services:    []string{"mongodb"},
+		MinRAM:      1 * GB,
+	},
 	"cache": {
 		ID:          "cache",
 		Name:        "Cache (Redis)",
@@ -134,6 +142,11 @@ var ProjectTemplates = map[string]ProjectTemplate{
 		Name:        "Chatbot Application",
 		Description: "Create conversational AI interfaces",
 		Components:  []string{"llm", "database", "cache"},
+	},
+	"fullstack": {
+		Name:        "Full-Stack Application",
+		Description: "Complete application with SQL, NoSQL, cache, and storage",
+		Components:  []string{"llm", "database", "mongodb", "cache", "queue", "storage"},
 	},
 	//"voice": {
 	//	Name:        "Voice Assistant",

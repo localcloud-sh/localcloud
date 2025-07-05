@@ -341,12 +341,6 @@ func runComponentInfo(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// Helper functions
-
-// internal/cli/component.go - Update getEnabledComponents function
-
-// internal/cli/component.go - Replace getEnabledComponents function
-
 // getEnabledComponents returns list of enabled component IDs from config
 func getEnabledComponents(cfg *config.Config) []string {
 	var components []string
@@ -397,6 +391,11 @@ func getEnabledComponents(cfg *config.Config) []string {
 		components = appendUnique(components, "storage")
 	}
 
+	// Check MongoDB - only if type is set
+	if cfg.Services.MongoDB.Type != "" && cfg.Services.MongoDB.Port > 0 {
+		components = appendUnique(components, "mongodb")
+	}
+
 	// Check STT/Whisper - only if type is set
 	//if cfg.Services.Whisper.Type != "" && cfg.Services.Whisper.Port > 0 {
 	//	components = appendUnique(components, "stt")
@@ -434,6 +433,13 @@ func enableComponent(cfg *config.Config, comp components.Component) error {
 		v.Set("services.storage.type", "minio")
 		v.Set("services.storage.port", 9000)
 		v.Set("services.storage.console", 9001)
+
+	case "mongodb":
+		v.Set("services.mongodb.type", "mongodb")
+		v.Set("services.mongodb.version", "7.0")
+		v.Set("services.mongodb.port", 27017)
+		v.Set("services.mongodb.replica_set", false)
+		v.Set("services.mongodb.auth_enabled", true)
 
 		//case "stt":
 		//	// Enable Whisper service
@@ -508,6 +514,13 @@ func disableComponent(cfg *config.Config, comp components.Component) error {
 		v.Set("services.storage.type", "")
 		v.Set("services.storage.port", 0)
 		v.Set("services.storage.console", 0)
+
+	case "mongodb":
+		v.Set("services.mongodb.type", "")
+		v.Set("services.mongodb.version", "")
+		v.Set("services.mongodb.port", 0)
+		v.Set("services.mongodb.replica_set", false)
+		v.Set("services.mongodb.auth_enabled", false)
 
 	case "stt":
 		v.Set("services.whisper.type", "")
