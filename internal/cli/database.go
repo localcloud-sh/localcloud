@@ -71,15 +71,8 @@ func runDBConnect(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no LocalCloud project found")
 	}
 
-	// Debug: Config'i kontrol et
-	fmt.Printf("Config file: %s\n", configFile)
-	fmt.Printf("Project path: %s\n", projectPath)
-
 	// Get config
 	cfg := config.Get()
-
-	// Debug: Config içeriğini yazdır
-	fmt.Printf("Database Type: %s\n", cfg.Services.Database.Type)
 
 	if cfg.Services.Database.Type == "" {
 		return fmt.Errorf("database service not configured")

@@ -61,7 +61,6 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&projectPath, "project", "p", ".", "Project directory path")
 
 	// Add all subcommands
-	rootCmd.AddCommand(createCmd)
 	rootCmd.AddCommand(setupCmd) // Setup replaces init - combines initialization and configuration
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(stopCmd)
