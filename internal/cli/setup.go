@@ -22,17 +22,18 @@ import (
 var templatesFS embed.FS
 
 var setupCmd = &cobra.Command{
-	Use:   "setup [template]",
-	Short: "Configure LocalCloud project components",
-	Long: `Configure your LocalCloud project interactively. 
+	Use:   "setup [project-name]",
+	Short: "Initialize and configure LocalCloud project",
+	Long: `Initialize a new LocalCloud project or configure an existing one.
 
-This command adapts to your project state:
-- Empty project: Full component selection
-- Existing components: Modify current setup (add/remove)
-- With template: Create from predefined templates`,
-	Example: `  lc setup                   # Interactive configuration
-  lc setup --add llm         # Add specific component
-  lc setup --remove cache    # Remove component`,
+This command combines project initialization and component configuration:
+- New project: Creates project structure and configures components
+- Existing project: Modifies current component configuration
+- With flags: Add or remove specific components`,
+	Example: `  lc setup                   # Setup in current directory
+  lc setup my-project        # Create and setup new project
+  lc setup --add llm         # Add component to existing project
+  lc setup --remove cache    # Remove component from project`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runSetup,
 }
@@ -48,21 +49,53 @@ func init() {
 }
 
 func runSetup(cmd *cobra.Command, args []string) error {
-	// Check if project is initialized
-	if !IsProjectInitialized() {
-		printError("No LocalCloud project found in current directory")
-		fmt.Println("\nTo create a new project:")
-		fmt.Printf("  %s\n", infoColor("lc init my-project"))
-		fmt.Printf("  %s\n", infoColor("lc init              # Initialize in current directory"))
-		return fmt.Errorf("project not initialized")
-	}
+	var projectName string
+	var projectDir string
+	isNewProject := false
 
-	// If template specified, use template setup
+	// Determine project name and directory
 	if len(args) > 0 {
-		return runTemplateSetup(cmd, args[0])
+		// Project name provided - create new project
+		projectName = args[0]
+		projectDir = filepath.Join(projectPath, projectName)
+		isNewProject = true
+	} else {
+		// No project name - use current directory
+		projectDir = projectPath
+		projectName = filepath.Base(projectDir)
 	}
 
-	// Handle --add and --remove flags (this function is in init_interactive.go)
+	// Check if this is an existing project or we need to initialize
+	if !IsProjectInitialized() {
+		// For --add/--remove flags, project must exist
+		if len(setupAdd) > 0 || len(setupRemove) > 0 {
+			printError("No LocalCloud project found in current directory")
+			fmt.Println("\nTo create a new project, run:")
+			fmt.Printf("  %s\n", infoColor("lc setup"))
+			return fmt.Errorf("project not initialized")
+		}
+
+		// Initialize new project
+		if err := initializeProject(projectName, projectDir, isNewProject); err != nil {
+			return err
+		}
+
+		// Change to project directory if we created one
+		if isNewProject {
+			originalDir, _ := os.Getwd()
+			if err := os.Chdir(projectDir); err != nil {
+				return fmt.Errorf("failed to change directory: %w", err)
+			}
+			defer os.Chdir(originalDir)
+		}
+
+		// Reload config after initialization
+		if err := config.Init(""); err != nil {
+			return fmt.Errorf("failed to initialize config: %w", err)
+		}
+	}
+
+	// Handle --add and --remove flags
 	if len(setupAdd) > 0 || len(setupRemove) > 0 {
 		return handleComponentModification(setupAdd, setupRemove)
 	}
@@ -73,6 +106,11 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load configuration")
 	}
 
+	// Update project name in config if needed
+	if cfg.Project.Name == "" || cfg.Project.Name == "my-project" {
+		cfg.Project.Name = projectName
+	}
+
 	// Determine setup mode based on current state
 	existingComponents := getConfiguredComponents(cfg)
 
@@ -80,7 +118,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		// Empty config - run full setup
 		fmt.Println(color.New(color.FgCyan, color.Bold).Sprint("🚀 LocalCloud Project Setup"))
 		fmt.Println(strings.Repeat("━", 60))
-		fmt.Println("\nNo components configured. Let's set up your project!")
+		fmt.Println("\nLet's configure your LocalCloud project!")
 		fmt.Println()
 
 		return runFullSetup(cfg)
@@ -390,6 +428,49 @@ func runTemplateSetup(cmd *cobra.Command, templateName string) error {
 	return nil
 }
 
+// initializeProject creates a new LocalCloud project structure
+func initializeProject(projectName, projectDir string, createDir bool) error {
+	// Create project directory if needed
+	if createDir {
+		if err := os.MkdirAll(projectDir, 0755); err != nil {
+			return fmt.Errorf("failed to create project directory: %w", err)
+		}
+		fmt.Printf("%s Created project directory: %s\n", successColor("✓"), projectName)
+	}
+
+	// Create .localcloud directory
+	configPath := filepath.Join(projectDir, ".localcloud")
+	if err := os.MkdirAll(configPath, 0755); err != nil {
+		return fmt.Errorf("failed to create .localcloud directory: %w", err)
+	}
+
+	// Create initial config file
+	configFile := filepath.Join(configPath, "config.yaml")
+	configContent, err := config.GenerateDefault(projectName, "custom")
+	if err != nil {
+		return fmt.Errorf("failed to generate config: %w", err)
+	}
+
+	if err := os.WriteFile(configFile, configContent, 0644); err != nil {
+		return fmt.Errorf("failed to create config file: %w", err)
+	}
+
+	// Create .gitignore
+	gitignore := filepath.Join(projectDir, ".gitignore")
+	gitignoreContent := `.localcloud/data/
+.localcloud/logs/
+.localcloud/tunnels/
+.env.local
+*.log
+`
+	if err := os.WriteFile(gitignore, []byte(gitignoreContent), 0644); err != nil {
+		return fmt.Errorf("failed to create .gitignore: %w", err)
+	}
+
+	fmt.Printf("%s Initialized LocalCloud project structure\n", successColor("✓"))
+	return nil
+}
+
 // Helper functions - only add functions not already defined elsewhere
 func contains(slice []string, item string) bool {
 	for _, s := range slice {
@@ -438,11 +519,9 @@ func showSetupSummary(componentIDs []string, models map[string]string) {
 	fmt.Println("  lc start    # Start all services")
 }
 
-// SetupCmd creates the setup command (for external initialization)
-func SetupCmd(fs embed.FS) *cobra.Command {
-	// Store the filesystem
+// SetTemplateFS sets the template filesystem
+func SetTemplateFS(fs embed.FS) {
 	templatesFS = fs
-	return setupCmd
 }
 
 // TemplatesCmd creates the templates command

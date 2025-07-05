@@ -450,7 +450,7 @@ func (d *Doctor) checkConfiguration() DiagnosticResult {
 		return DiagnosticResult{
 			Status:   CheckStatusError,
 			Message:  "No configuration found",
-			Solution: "Run 'lc init' to create a new project",
+			Solution: "Run 'lc setup' to create a new project",
 		}
 	}
 

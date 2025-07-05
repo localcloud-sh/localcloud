@@ -12,11 +12,8 @@ import (
 var templatesFS embed.FS
 
 func main() {
-	// Add template commands
-	cli.AddTemplateCommands(
-		cli.SetupCmd(templatesFS),
-		cli.TemplatesCmd(),
-	)
+	// Initialize template filesystem for setup command
+	cli.InitializeTemplateFS(templatesFS)
 
 	// Execute root command
 	cli.Execute()

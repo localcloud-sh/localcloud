@@ -70,7 +70,7 @@ func init() {
 func runComponentList(cmd *cobra.Command, args []string) error {
 	// Check if project is initialized
 	if !IsProjectInitialized() {
-		return fmt.Errorf("no LocalCloud project found. Run 'lc init' first")
+		return fmt.Errorf("no LocalCloud project found. Run 'lc setup' first")
 	}
 
 	cfg := config.Get()
@@ -131,7 +131,7 @@ func runComponentAdd(cmd *cobra.Command, args []string) error {
 
 	// Check if project is initialized
 	if !IsProjectInitialized() {
-		return fmt.Errorf("no LocalCloud project found. Run 'lc init' first")
+		return fmt.Errorf("no LocalCloud project found. Run 'lc setup' first")
 	}
 
 	// Validate component exists
@@ -242,7 +242,7 @@ func runComponentRemove(cmd *cobra.Command, args []string) error {
 
 	// Check if project is initialized
 	if !IsProjectInitialized() {
-		return fmt.Errorf("no LocalCloud project found. Run 'lc init' first")
+		return fmt.Errorf("no LocalCloud project found. Run 'lc setup' first")
 	}
 
 	// Validate component exists
@@ -532,7 +532,7 @@ func runComponentUpdate(cmd *cobra.Command, args []string) error {
 
 	// Check if project is initialized
 	if !IsProjectInitialized() {
-		return fmt.Errorf("no LocalCloud project found. Run 'lc init' first")
+		return fmt.Errorf("no LocalCloud project found. Run 'lc setup' first")
 	}
 
 	// Validate component exists

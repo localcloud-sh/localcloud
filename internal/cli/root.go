@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"embed"
 	"fmt"
 	"os"
 
@@ -35,7 +36,7 @@ and compute services entirely on your machine.
 
 You can use either 'localcloud' or 'lc' to run commands.`,
 	Version: "0.1.0",
-	Example: `  localcloud init my-project
+	Example: `  localcloud setup my-project
   lc start
   lc models list
   lc status`,
@@ -60,9 +61,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&projectPath, "project", "p", ".", "Project directory path")
 
 	// Add all subcommands
-	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(createCmd)
-	rootCmd.AddCommand(setupCmd) // Add setup command
+	rootCmd.AddCommand(setupCmd) // Setup replaces init - combines initialization and configuration
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(stopCmd)
 	rootCmd.AddCommand(statusCmd)
@@ -77,9 +77,8 @@ func init() {
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(resetCmd)
 	rootCmd.AddCommand(componentCmd)
-	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(TemplatesCmd())
 	// Database command is added in database.go init()
-	// Template commands will be added from main.go
 }
 func initConfig() {
 	// Config initialization will be implemented in Task 3
@@ -97,8 +96,8 @@ func initConfig() {
 	}
 }
 
-// AddTemplateCommands adds template-related commands to root
-func AddTemplateCommands(setupCmd, templatesCmd *cobra.Command) {
-	rootCmd.AddCommand(setupCmd)
-	rootCmd.AddCommand(templatesCmd)
+// InitializeTemplateFS sets the template filesystem for commands that need it
+func InitializeTemplateFS(fs embed.FS) {
+	// Set the filesystem for setup command
+	SetTemplateFS(fs)
 }

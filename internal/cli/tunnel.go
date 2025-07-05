@@ -82,7 +82,7 @@ func init() {
 func runTunnelSetup(cmd *cobra.Command, args []string) error {
 	// Check if project is initialized
 	if !IsProjectInitialized() {
-		return fmt.Errorf("no LocalCloud project found. Run 'localcloud init' first")
+		return fmt.Errorf("no LocalCloud project found. Run 'lc setup' first")
 	}
 
 	cfg := config.Get()
@@ -318,7 +318,7 @@ func runTunnelStop(cmd *cobra.Command, args []string) error {
 func runTunnelStatus(cmd *cobra.Command, args []string) error {
 	// Check if project is initialized
 	if !IsProjectInitialized() {
-		return fmt.Errorf("no LocalCloud project found. Run 'localcloud init' first")
+		return fmt.Errorf("no LocalCloud project found. Run 'lc setup' first")
 	}
 
 	cfg := config.Get()

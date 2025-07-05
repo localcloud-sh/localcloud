@@ -42,7 +42,7 @@ func init() {
 func runInfo(cmd *cobra.Command, args []string) error {
 	// Check if project is initialized
 	if !IsProjectInitialized() {
-		return fmt.Errorf("no LocalCloud project found. Run 'localcloud init' first")
+		return fmt.Errorf("no LocalCloud project found. Run 'lc setup' first")
 	}
 
 	// Get config

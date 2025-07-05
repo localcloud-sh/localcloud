@@ -184,7 +184,7 @@ func runReset(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  cd .. && rm -rf %s\n", filepath.Base(projectPath))
 	} else if resetHard {
 		printSuccess("LocalCloud has been completely reset")
-		fmt.Println("Run 'lc init' to start a new project")
+		fmt.Println("Run 'lc setup' to start a new project")
 	} else {
 		printSuccess("LocalCloud has been reset")
 		if resetKeepData {

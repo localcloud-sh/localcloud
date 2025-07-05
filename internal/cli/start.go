@@ -55,10 +55,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if !IsProjectInitialized() {
 		printError("No LocalCloud project found")
 		fmt.Println("\nTo create a new project:")
-		fmt.Printf("  %s\n", infoColor("lc init my-project    # Create project"))
-		fmt.Printf("  %s\n", infoColor("lc init               # Initialize here"))
-		fmt.Println("\nFor quick setup:")
-		fmt.Printf("  %s\n", infoColor("lc init --interactive # Create and configure"))
+		fmt.Printf("  %s\n", infoColor("lc setup my-project   # Create and configure project"))
+		fmt.Printf("  %s\n", infoColor("lc setup              # Setup in current directory"))
 		return fmt.Errorf("project not initialized")
 	}
 
