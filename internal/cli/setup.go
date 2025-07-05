@@ -156,8 +156,11 @@ func getConfiguredComponents(cfg *config.Config) []string {
 		}
 	}
 
-	// Check other services
+	// Check database services
 	if cfg.Services.Database.Port > 0 {
+		// Database is configured
+		components = append(components, "database")
+
 		// Check if pgvector extension is enabled
 		for _, ext := range cfg.Services.Database.Extensions {
 			if ext == "pgvector" {
@@ -223,7 +226,7 @@ func runFullSetup(cfg *config.Config) error {
 // runModificationSetup allows adding/removing components from existing setup
 func runModificationSetup(cfg *config.Config, existingComponents []string) error {
 	// Create component options with existing ones pre-selected
-	allComponents := []string{"llm", "embedding", "vector", "cache", "queue", "storage", "stt"}
+	allComponents := []string{"llm", "embedding", "database", "vector", "cache", "queue", "storage", "stt"}
 
 	var options []string
 	var defaults []string
@@ -269,6 +272,11 @@ func runModificationSetup(cfg *config.Config, existingComponents []string) error
 		if compID, ok := componentMap[sel]; ok {
 			newComponents = append(newComponents, compID)
 		}
+	}
+
+	// Validate dependencies
+	if err := validateComponentDependencies(newComponents); err != nil {
+		return err
 	}
 
 	// Determine what changed
@@ -494,6 +502,21 @@ func difference(a, b []string) []string {
 		}
 	}
 	return diff
+}
+
+// validateComponentDependencies validates that component dependencies are satisfied
+func validateComponentDependencies(componentIDs []string) error {
+	// Check if vector is selected without database
+	hasVector := contains(componentIDs, "vector")
+	hasDatabase := contains(componentIDs, "database")
+
+	if hasVector && !hasDatabase {
+		fmt.Printf("\n%s Vector Search requires Database (PostgreSQL) to be selected.\n", errorColor("Error:"))
+		fmt.Println("Vector Search is implemented as a PostgreSQL extension (pgvector).")
+		return fmt.Errorf("dependency validation failed")
+	}
+
+	return nil
 }
 
 // showSetupSummary displays what was configured

@@ -95,11 +95,7 @@ This script will:
 ### Getting Started
 
 ```bash
-# Create and configure a new project
-lc setup my-assistant
-cd my-assistant
-
-# Or setup in current directory
+# Setup in current directory
 lc setup
 ```
 
@@ -108,7 +104,6 @@ You'll see an interactive wizard:
 ? What would you like to build? (Use arrow keys)
 ❯ Chat Assistant - Conversational AI with memory
   RAG System - Document Q&A with vector search  
-  Speech Processing - Whisper + TTS
   Custom - Select components manually
 
 ? Select components you need: (Press <space> to select, <enter> to confirm)

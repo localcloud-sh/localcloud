@@ -432,12 +432,39 @@ func generateInteractiveConfig(projectName, projectType string, componentIDs []s
 				cfg.Services.AI.Models = append(cfg.Services.AI.Models, model)
 			}
 
+		case "database":
+			// Add basic database without vector
+			if cfg.Services.Database.Port == 0 {
+				cfg.Services.Database = config.DatabaseConfig{
+					Type:       "postgres",
+					Version:    "16",
+					Port:       5432,
+					Extensions: []string{},
+				}
+			}
+
 		case "vector":
-			cfg.Services.Database = config.DatabaseConfig{
-				Type:       "postgres",
-				Version:    "16",
-				Port:       5432,
-				Extensions: []string{"pgvector"},
+			// Add pgvector extension to existing database
+			if cfg.Services.Database.Port == 0 {
+				// If database wasn't already configured, set it up with pgvector
+				cfg.Services.Database = config.DatabaseConfig{
+					Type:       "postgres",
+					Version:    "16",
+					Port:       5432,
+					Extensions: []string{"pgvector"},
+				}
+			} else {
+				// Add pgvector to existing extensions if not already present
+				hasVector := false
+				for _, ext := range cfg.Services.Database.Extensions {
+					if ext == "pgvector" {
+						hasVector = true
+						break
+					}
+				}
+				if !hasVector {
+					cfg.Services.Database.Extensions = append(cfg.Services.Database.Extensions, "pgvector")
+				}
 			}
 
 		case "cache":
@@ -812,7 +839,7 @@ func selectComponents(projectType string) ([]string, error) {
 	var componentMap = make(map[string]string)
 
 	// Order components logically
-	componentOrder := []string{"llm", "embedding", "vector", "stt", "cache", "queue", "storage"}
+	componentOrder := []string{"llm", "embedding", "database", "vector", "stt", "cache", "queue", "storage"}
 
 	for _, compID := range componentOrder {
 		comp, err := components.GetComponent(compID)
@@ -841,6 +868,24 @@ func selectComponents(projectType string) ([]string, error) {
 		if compID, ok := componentMap[sel]; ok {
 			selectedIDs = append(selectedIDs, compID)
 		}
+	}
+
+	// Validate dependencies
+	hasVector := false
+	hasDatabase := false
+	for _, id := range selectedIDs {
+		if id == "vector" {
+			hasVector = true
+		}
+		if id == "database" {
+			hasDatabase = true
+		}
+	}
+
+	if hasVector && !hasDatabase {
+		fmt.Printf("\n%s Vector Search requires Database (PostgreSQL) to be selected.\n", errorColor("Error:"))
+		fmt.Println("Please select both or select Database instead of Vector Search.")
+		return selectComponents(projectType) // Retry selection
 	}
 
 	return selectedIDs, nil
@@ -992,12 +1037,39 @@ func updateConfig(cfg *config.Config, componentIDs []string, selectedModels map[
 				cfg.Services.AI.Models = append(cfg.Services.AI.Models, model)
 			}
 
+		case "database":
+			// Add basic database without vector
+			if cfg.Services.Database.Port == 0 {
+				cfg.Services.Database = config.DatabaseConfig{
+					Type:       "postgres",
+					Version:    "16",
+					Port:       5432,
+					Extensions: []string{},
+				}
+			}
+
 		case "vector":
-			cfg.Services.Database = config.DatabaseConfig{
-				Type:       "postgres",
-				Version:    "16",
-				Port:       5432,
-				Extensions: []string{"pgvector"},
+			// Add pgvector extension to existing database
+			if cfg.Services.Database.Port == 0 {
+				// If database wasn't already configured, set it up with pgvector
+				cfg.Services.Database = config.DatabaseConfig{
+					Type:       "postgres",
+					Version:    "16",
+					Port:       5432,
+					Extensions: []string{"pgvector"},
+				}
+			} else {
+				// Add pgvector to existing extensions if not already present
+				hasVector := false
+				for _, ext := range cfg.Services.Database.Extensions {
+					if ext == "pgvector" {
+						hasVector = true
+						break
+					}
+				}
+				if !hasVector {
+					cfg.Services.Database.Extensions = append(cfg.Services.Database.Extensions, "pgvector")
+				}
 			}
 
 		case "cache":
@@ -1079,6 +1151,21 @@ func removeComponentsFromConfig(cfg *config.Config, componentIDs []string) {
 			cfg.Services.AI.Models = llmModels
 
 		case "vector":
+			// Remove pgvector extension but keep database if it exists
+			if cfg.Services.Database.Port > 0 {
+				var newExtensions []string
+				for _, ext := range cfg.Services.Database.Extensions {
+					if ext != "pgvector" {
+						newExtensions = append(newExtensions, ext)
+					}
+				}
+				cfg.Services.Database.Extensions = newExtensions
+				fmt.Printf("\n%s Vector extension will be removed safely from PostgreSQL.\n", infoColor("ℹ"))
+				fmt.Println("Your data will remain intact.")
+			}
+
+		case "database":
+			// Clear entire database config (including vector if present)
 			cfg.Services.Database = config.DatabaseConfig{}
 
 		case "cache":

@@ -77,15 +77,24 @@ var Registry = map[string]Component{
 	//	},
 	//	MinRAM: 1 * GB,
 	//},
-	"vector": {
-		ID:          "vector",
-		Name:        "Vector Database (pgvector)",
-		Description: "PostgreSQL with pgvector for similarity search",
+	"database": {
+		ID:          "database",
+		Name:        "Database (PostgreSQL)",
+		Description: "Standard relational database for data storage",
 		Category:    "database",
 		Services:    []string{"postgres"},
-		MinRAM:      1 * GB,
+		MinRAM:      512 * MB,
+	},
+	"vector": {
+		ID:          "vector",
+		Name:        "Vector Search (pgvector)",
+		Description: "Add vector similarity search to PostgreSQL",
+		Category:    "database",
+		Services:    []string{"postgres"},
+		MinRAM:      512 * MB,
 		Config: map[string]interface{}{
-			"extensions": []string{"pgvector"},
+			"extension":  "pgvector",
+			"depends_on": "database",
 		},
 	},
 	"cache": {
@@ -119,12 +128,12 @@ var ProjectTemplates = map[string]ProjectTemplate{
 	"rag": {
 		Name:        "RAG/Knowledge Base",
 		Description: "Build AI-powered search and Q&A systems",
-		Components:  []string{"llm", "embedding", "vector", "cache"},
+		Components:  []string{"llm", "embedding", "database", "vector", "cache"},
 	},
 	"chatbot": {
 		Name:        "Chatbot Application",
 		Description: "Create conversational AI interfaces",
-		Components:  []string{"llm", "cache"},
+		Components:  []string{"llm", "database", "cache"},
 	},
 	//"voice": {
 	//	Name:        "Voice Assistant",
