@@ -658,8 +658,20 @@ func templatesInfoCmd() *cobra.Command {
 	}
 }
 
-// updateCompleteConfig ensures the configuration reflects only the selected components
-// and clears any stale service configurations
+func appendUnique(slice []string, item string) []string {
+	for _, existing := range slice {
+		if existing == item {
+			return slice
+		}
+	}
+	return append(slice, item)
+}
+
+// internal/cli/setup.go
+// Fix for duplicate case issue - locate the updateCompleteConfig function
+// and remove the duplicate "stt" case. The function should have only one switch statement
+// Here's the corrected section of updateCompleteConfig:
+
 func updateCompleteConfig(cfg *config.Config, componentIDs []string) {
 	// Set the project components field
 	cfg.Project.Components = componentIDs
@@ -670,39 +682,87 @@ func updateCompleteConfig(cfg *config.Config, componentIDs []string) {
 		enabledComponents[comp] = true
 	}
 
-	// Handle Database configuration
-	if enabledComponents["database"] || enabledComponents["vector"] {
-		// Ensure PostgreSQL config is properly initialized if database/vector is selected
-		if cfg.Services.Database.Type == "" {
+	// Store AI models if they exist (to preserve them when updating AI services)
+	var existingAIModels []string
+	var existingAIDefault string
+	if cfg.Services.AI.Port > 0 {
+		existingAIModels = cfg.Services.AI.Models
+		existingAIDefault = cfg.Services.AI.Default
+	}
+
+	// Clear ALL service configurations - start fresh
+	cfg.Services = config.ServicesConfig{
+		AI:       config.AIConfig{},
+		Database: config.DatabaseConfig{},
+		MongoDB:  config.MongoDBConfig{},
+		Cache:    config.CacheConfig{},
+		Queue:    config.QueueConfig{},
+		Storage:  config.StorageConfig{},
+		Whisper:  config.WhisperConfig{},
+	}
+
+	// Re-add only the services for enabled components
+	for _, compID := range componentIDs {
+		switch compID {
+		case "llm", "embedding":
+			// Initialize AI service if needed
+			if cfg.Services.AI.Port == 0 {
+				cfg.Services.AI = config.AIConfig{
+					Port:    11434,
+					Models:  []string{},
+					Default: "",
+				}
+			}
+			// Restore existing models if they match the component type
+			for _, model := range existingAIModels {
+				isEmbedding := models.IsEmbeddingModel(model)
+				if (compID == "embedding" && isEmbedding) ||
+					(compID == "llm" && !isEmbedding) {
+					cfg.Services.AI.Models = append(cfg.Services.AI.Models, model)
+				}
+			}
+			// Restore default if it's still valid
+			if existingAIDefault != "" {
+				for _, model := range cfg.Services.AI.Models {
+					if model == existingAIDefault {
+						cfg.Services.AI.Default = existingAIDefault
+						break
+					}
+				}
+			}
+
+		case "database":
 			cfg.Services.Database = config.DatabaseConfig{
 				Type:       "postgres",
 				Version:    "16",
 				Port:       5432,
 				Extensions: []string{},
 			}
-		}
-		// Add pgvector extension if vector is selected
-		if enabledComponents["vector"] {
-			hasVector := false
-			for _, ext := range cfg.Services.Database.Extensions {
-				if ext == "pgvector" {
-					hasVector = true
-					break
+
+		case "vector":
+			// Ensure database exists and add pgvector
+			if cfg.Services.Database.Type == "" {
+				cfg.Services.Database = config.DatabaseConfig{
+					Type:       "postgres",
+					Version:    "16",
+					Port:       5432,
+					Extensions: []string{"pgvector"},
+				}
+			} else {
+				// Add pgvector if not present
+				hasVector := false
+				for _, ext := range cfg.Services.Database.Extensions {
+					if ext == "pgvector" {
+						hasVector = true
+						break
+					}
+				}
+				if !hasVector {
+					cfg.Services.Database.Extensions = append(cfg.Services.Database.Extensions, "pgvector")
 				}
 			}
-			if !hasVector {
-				cfg.Services.Database.Extensions = append(cfg.Services.Database.Extensions, "pgvector")
-			}
-		}
-	} else {
-		// Clear database config if database/vector components are not selected
-		cfg.Services.Database = config.DatabaseConfig{}
-	}
 
-	// Handle MongoDB configuration
-	if enabledComponents["mongodb"] {
-		// Ensure MongoDB config is properly initialized if mongodb is selected
-		if cfg.Services.MongoDB.Type == "" {
+		case "mongodb":
 			cfg.Services.MongoDB = config.MongoDBConfig{
 				Type:        "mongodb",
 				Version:     "7.0",
@@ -710,89 +770,33 @@ func updateCompleteConfig(cfg *config.Config, componentIDs []string) {
 				ReplicaSet:  false,
 				AuthEnabled: true,
 			}
-		}
-	} else {
-		// Clear MongoDB config if mongodb component is not selected
-		cfg.Services.MongoDB = config.MongoDBConfig{}
-	}
 
-	// Handle Cache configuration
-	if enabledComponents["cache"] {
-		// Ensure cache config is properly initialized if cache is selected
-		if cfg.Services.Cache.Type == "" {
+		case "cache":
 			cfg.Services.Cache = config.CacheConfig{
 				Type:            "redis",
 				Port:            6379,
-				MaxMemory:       "512mb",
+				MaxMemory:       "256mb",
 				MaxMemoryPolicy: "allkeys-lru",
 				Persistence:     false,
 			}
-		}
-	} else {
-		// Clear cache config if cache component is not selected
-		cfg.Services.Cache = config.CacheConfig{}
-	}
 
-	// Handle Queue configuration
-	if enabledComponents["queue"] {
-		// Ensure queue config is properly initialized if queue is selected
-		if cfg.Services.Queue.Type == "" {
+		case "queue":
 			cfg.Services.Queue = config.QueueConfig{
 				Type:            "redis",
 				Port:            6380,
-				MaxMemory:       "1gb",
+				MaxMemory:       "512mb",
 				MaxMemoryPolicy: "noeviction",
 				Persistence:     true,
-				AppendOnly:      true,
 				AppendFsync:     "everysec",
+				AppendOnly:      true,
 			}
-		}
-	} else {
-		// Clear queue config if queue component is not selected
-		cfg.Services.Queue = config.QueueConfig{}
-	}
 
-	// Handle Storage configuration
-	if enabledComponents["storage"] {
-		// Ensure storage config is properly initialized if storage is selected
-		if cfg.Services.Storage.Type == "" {
+		case "storage":
 			cfg.Services.Storage = config.StorageConfig{
 				Type:    "minio",
 				Port:    9000,
 				Console: 9001,
 			}
 		}
-	} else {
-		// Clear storage config if storage component is not selected
-		cfg.Services.Storage = config.StorageConfig{}
-	}
-
-	// Handle Whisper configuration
-	if enabledComponents["stt"] {
-		// Ensure whisper config is properly initialized if stt is selected
-		if cfg.Services.Whisper.Type == "" {
-			cfg.Services.Whisper = config.WhisperConfig{
-				Type: "localllama",
-				Port: 9000,
-			}
-		}
-	} else {
-		// Clear whisper config if stt component is not selected
-		cfg.Services.Whisper = config.WhisperConfig{}
-	}
-
-	// Handle AI configuration
-	if enabledComponents["llm"] || enabledComponents["embedding"] {
-		// Ensure AI config is properly initialized if AI components are selected
-		if cfg.Services.AI.Port == 0 {
-			cfg.Services.AI = config.AIConfig{
-				Port:    11434,
-				Models:  []string{},
-				Default: "",
-			}
-		}
-	} else {
-		// Clear AI config if no AI components are selected
-		cfg.Services.AI = config.AIConfig{}
 	}
 }

@@ -91,7 +91,6 @@ func Save() error {
 	return nil
 }
 
-// syncToViper syncs the current config instance to viper
 func syncToViper() {
 	if instance == nil {
 		return
@@ -102,33 +101,32 @@ func syncToViper() {
 	viper.Set("project.type", instance.Project.Type)
 	viper.Set("project.components", instance.Project.Components)
 
-	// Helper function to check if component is selected
-	isComponentSelected := func(componentID string) bool {
-		for _, comp := range instance.Project.Components {
-			if comp == componentID {
-				return true
-			}
-		}
-		return false
-	}
+	// Clear all service keys first to ensure removed services are not persisted
+	viper.Set("services", nil)
 
-	// AI service - only write if AI components are selected
-	if (isComponentSelected("llm") || isComponentSelected("embedding") || isComponentSelected("stt")) && instance.Services.AI.Port > 0 {
+	// Only set service configurations if they are actually configured
+	if instance.Services.AI.Port > 0 {
 		viper.Set("services.ai.port", instance.Services.AI.Port)
 		viper.Set("services.ai.models", instance.Services.AI.Models)
 		viper.Set("services.ai.default", instance.Services.AI.Default)
 	}
 
-	// Database - only write if database or vector component is selected
-	if (isComponentSelected("database") || isComponentSelected("vector")) && instance.Services.Database.Type != "" {
+	if instance.Services.Database.Type != "" {
 		viper.Set("services.database.type", instance.Services.Database.Type)
 		viper.Set("services.database.version", instance.Services.Database.Version)
 		viper.Set("services.database.port", instance.Services.Database.Port)
 		viper.Set("services.database.extensions", instance.Services.Database.Extensions)
 	}
 
-	// Cache - only write if cache component is selected
-	if isComponentSelected("cache") && instance.Services.Cache.Type != "" {
+	if instance.Services.MongoDB.Type != "" {
+		viper.Set("services.mongodb.type", instance.Services.MongoDB.Type)
+		viper.Set("services.mongodb.version", instance.Services.MongoDB.Version)
+		viper.Set("services.mongodb.port", instance.Services.MongoDB.Port)
+		viper.Set("services.mongodb.replica_set", instance.Services.MongoDB.ReplicaSet)
+		viper.Set("services.mongodb.auth_enabled", instance.Services.MongoDB.AuthEnabled)
+	}
+
+	if instance.Services.Cache.Type != "" {
 		viper.Set("services.cache.type", instance.Services.Cache.Type)
 		viper.Set("services.cache.port", instance.Services.Cache.Port)
 		viper.Set("services.cache.maxmemory", instance.Services.Cache.MaxMemory)
@@ -136,8 +134,7 @@ func syncToViper() {
 		viper.Set("services.cache.persistence", instance.Services.Cache.Persistence)
 	}
 
-	// Queue - only write if queue component is selected
-	if isComponentSelected("queue") && instance.Services.Queue.Type != "" {
+	if instance.Services.Queue.Type != "" {
 		viper.Set("services.queue.type", instance.Services.Queue.Type)
 		viper.Set("services.queue.port", instance.Services.Queue.Port)
 		viper.Set("services.queue.maxmemory", instance.Services.Queue.MaxMemory)
@@ -147,38 +144,27 @@ func syncToViper() {
 		viper.Set("services.queue.appendfsync", instance.Services.Queue.AppendFsync)
 	}
 
-	// Storage - only write if storage component is selected
-	if isComponentSelected("storage") && instance.Services.Storage.Type != "" {
+	if instance.Services.Storage.Type != "" {
 		viper.Set("services.storage.type", instance.Services.Storage.Type)
 		viper.Set("services.storage.port", instance.Services.Storage.Port)
 		viper.Set("services.storage.console", instance.Services.Storage.Console)
 	}
 
-	// MongoDB - only write if mongodb component is selected
-	if isComponentSelected("mongodb") && instance.Services.MongoDB.Type != "" {
-		viper.Set("services.mongodb.type", instance.Services.MongoDB.Type)
-		viper.Set("services.mongodb.version", instance.Services.MongoDB.Version)
-		viper.Set("services.mongodb.port", instance.Services.MongoDB.Port)
-		viper.Set("services.mongodb.replica_set", instance.Services.MongoDB.ReplicaSet)
-		viper.Set("services.mongodb.auth_enabled", instance.Services.MongoDB.AuthEnabled)
+	if instance.Services.Whisper.Type != "" {
+		viper.Set("services.whisper.type", instance.Services.Whisper.Type)
+		viper.Set("services.whisper.port", instance.Services.Whisper.Port)
+		viper.Set("services.whisper.model", instance.Services.Whisper.Model)
 	}
 
-	//// Whisper
-	//if instance.Services.Whisper.Type != "" {
-	//	viper.Set("services.whisper.type", instance.Services.Whisper.Type)
-	//	viper.Set("services.whisper.port", instance.Services.Whisper.Port)
-	//	viper.Set("services.whisper.model", instance.Services.Whisper.Model)
-	//}
-
-	// Resources
+	// Set resource configurations
 	viper.Set("resources.memory_limit", instance.Resources.MemoryLimit)
 	viper.Set("resources.cpu_limit", instance.Resources.CPULimit)
 
-	// Connectivity
+	// Set connectivity configurations
 	viper.Set("connectivity.enabled", instance.Connectivity.Enabled)
 	viper.Set("connectivity.tunnel.provider", instance.Connectivity.Tunnel.Provider)
 
-	// CLI
+	// Set CLI configurations
 	viper.Set("cli.show_service_info", instance.CLI.ShowServiceInfo)
 }
 

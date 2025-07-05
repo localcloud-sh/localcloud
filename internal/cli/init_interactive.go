@@ -84,8 +84,8 @@ func selectProjectType() (string, error) {
 	var typeMap = make(map[string]string)
 
 	// Build options from templates
-	// Order templates for better UX
-	templateOrder := []string{"rag", "chatbot", "voice", "api", "custom"}
+	// Order templates for better UX - matching your requirements
+	templateOrder := []string{"custom", "rag", "chatbot", "fullstack", "simple"}
 
 	for _, key := range templateOrder {
 		if tmpl, ok := components.ProjectTemplates[key]; ok {
@@ -95,9 +95,16 @@ func selectProjectType() (string, error) {
 		}
 	}
 
+	// If no templates found, add at least custom
+	if len(options) == 0 {
+		options = append(options, "Custom - Select components manually")
+		typeMap["Custom - Select components manually"] = "custom"
+	}
+
 	prompt := &survey.Select{
-		Message: "What would you like to build?",
-		Options: options,
+		Message:  "What would you like to build?",
+		Options:  options,
+		PageSize: 10,
 	}
 
 	var selected string
@@ -105,7 +112,12 @@ func selectProjectType() (string, error) {
 		return "", err
 	}
 
-	return typeMap[selected], nil
+	projectType, ok := typeMap[selected]
+	if !ok {
+		return "custom", nil
+	}
+
+	return projectType, nil
 }
 
 // selectModels prompts user to select models for AI components
@@ -391,23 +403,19 @@ func checkResources(componentIDs []string, selectedModels map[string]string) err
 
 	return nil
 }
-
-// internal/cli/init_interactive.go - Replace generateInteractiveConfig
-
-// generateInteractiveConfig generates configuration from selections
 func generateInteractiveConfig(projectName, projectType string, componentIDs []string, selectedModels map[string]string) *config.Config {
-	// Start with empty config, not defaults
+	// Start with minimal config - no default services
 	cfg := &config.Config{
 		Version: "1",
 		Project: config.ProjectConfig{
 			Name:       projectName,
 			Type:       projectType,
-			Components: componentIDs,
+			Components: componentIDs, // This is the source of truth
 		},
-		Services: config.ServicesConfig{}, // Empty services
+		Services: config.ServicesConfig{}, // Empty services - will only add what's selected
 		Resources: config.ResourcesConfig{
-			MemoryLimit: "4GB",
-			CPULimit:    "2",
+			MemoryLimit: "",
+			CPULimit:    "",
 		},
 		Connectivity: config.ConnectivityConfig{
 			Enabled: false,
@@ -416,39 +424,44 @@ func generateInteractiveConfig(projectName, projectType string, componentIDs []s
 			},
 		},
 		CLI: config.CLIConfig{
-			ShowServiceInfo: true,
+			ShowServiceInfo: false,
 		},
 	}
 
-	// Only configure selected components
+	// Only configure services that were actually selected
 	for _, compID := range componentIDs {
 		switch compID {
-		case "llm", "embedding":
+		case "llm", "embedding", "stt":
+			// Initialize AI service only if AI components are selected
 			if cfg.Services.AI.Port == 0 {
 				cfg.Services.AI = config.AIConfig{
-					Port:   11434,
-					Models: []string{},
+					Port:    11434,
+					Models:  []string{},
+					Default: "",
 				}
 			}
+
+			// Add models for the specific component
 			if model, ok := selectedModels[compID]; ok {
 				cfg.Services.AI.Models = append(cfg.Services.AI.Models, model)
+
+				// Set default for LLM models
+				if compID == "llm" && cfg.Services.AI.Default == "" {
+					cfg.Services.AI.Default = model
+				}
 			}
 
 		case "database":
-			// Add basic database without vector
-			if cfg.Services.Database.Port == 0 {
-				cfg.Services.Database = config.DatabaseConfig{
-					Type:       "postgres",
-					Version:    "16",
-					Port:       5432,
-					Extensions: []string{},
-				}
+			cfg.Services.Database = config.DatabaseConfig{
+				Type:       "postgres",
+				Version:    "16",
+				Port:       5432,
+				Extensions: []string{},
 			}
 
 		case "vector":
-			// Add pgvector extension to existing database
+			// Vector requires database
 			if cfg.Services.Database.Port == 0 {
-				// If database wasn't already configured, set it up with pgvector
 				cfg.Services.Database = config.DatabaseConfig{
 					Type:       "postgres",
 					Version:    "16",
@@ -456,44 +469,8 @@ func generateInteractiveConfig(projectName, projectType string, componentIDs []s
 					Extensions: []string{"pgvector"},
 				}
 			} else {
-				// Add pgvector to existing extensions if not already present
-				hasVector := false
-				for _, ext := range cfg.Services.Database.Extensions {
-					if ext == "pgvector" {
-						hasVector = true
-						break
-					}
-				}
-				if !hasVector {
-					cfg.Services.Database.Extensions = append(cfg.Services.Database.Extensions, "pgvector")
-				}
-			}
-
-		case "cache":
-			cfg.Services.Cache = config.CacheConfig{
-				Type:            "redis",
-				Port:            6379,
-				MaxMemory:       "512mb",
-				MaxMemoryPolicy: "allkeys-lru",
-				Persistence:     false,
-			}
-
-		case "queue":
-			cfg.Services.Queue = config.QueueConfig{
-				Type:            "redis",
-				Port:            6380,
-				MaxMemory:       "1gb",
-				MaxMemoryPolicy: "noeviction",
-				Persistence:     true,
-				AppendOnly:      true,
-				AppendFsync:     "everysec",
-			}
-
-		case "storage":
-			cfg.Services.Storage = config.StorageConfig{
-				Type:    "minio",
-				Port:    9000,
-				Console: 9001,
+				// Add pgvector extension to existing database
+				cfg.Services.Database.Extensions = append(cfg.Services.Database.Extensions, "pgvector")
 			}
 
 		case "mongodb":
@@ -505,20 +482,33 @@ func generateInteractiveConfig(projectName, projectType string, componentIDs []s
 				AuthEnabled: true,
 			}
 
-		case "stt":
-			cfg.Services.Whisper = config.WhisperConfig{
-				Type: "localllama",
-				Port: 9000,
+		case "cache":
+			cfg.Services.Cache = config.CacheConfig{
+				Type:            "redis",
+				Port:            6379,
+				MaxMemory:       "256mb",
+				MaxMemoryPolicy: "allkeys-lru",
+				Persistence:     false,
 			}
-			if model, ok := selectedModels[compID]; ok {
-				cfg.Services.Whisper.Model = model
+
+		case "queue":
+			cfg.Services.Queue = config.QueueConfig{
+				Type:            "redis",
+				Port:            6380,
+				MaxMemory:       "512mb",
+				MaxMemoryPolicy: "noeviction",
+				Persistence:     true,
+				AppendFsync:     "everysec",
+				AppendOnly:      true,
+			}
+
+		case "storage":
+			cfg.Services.Storage = config.StorageConfig{
+				Type:    "minio",
+				Port:    9000,
+				Console: 9001,
 			}
 		}
-	}
-
-	// Set default model for AI service
-	if len(cfg.Services.AI.Models) > 0 {
-		cfg.Services.AI.Default = cfg.Services.AI.Models[0]
 	}
 
 	return cfg

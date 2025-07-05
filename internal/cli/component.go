@@ -1,10 +1,11 @@
-// Package cli implements the command-line interface for LocalCloud
+// internal/cli/component.go
 package cli
 
 import (
 	"fmt"
 	"strings"
 
+	"github.com/AlecAivazis/survey/v2"
 	"github.com/localcloud-sh/localcloud/internal/components"
 	"github.com/localcloud-sh/localcloud/internal/config"
 	"github.com/localcloud-sh/localcloud/internal/models"
@@ -63,7 +64,7 @@ func init() {
 	componentCmd.AddCommand(componentListCmd)
 	componentCmd.AddCommand(componentAddCmd)
 	componentCmd.AddCommand(componentRemoveCmd)
-	componentCmd.AddCommand(componentUpdateCmd) // Add update command
+	componentCmd.AddCommand(componentUpdateCmd)
 	componentCmd.AddCommand(componentInfoCmd)
 }
 
@@ -78,10 +79,9 @@ func runComponentList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load configuration")
 	}
 
-	// Get enabled components from config
-	enabledComponents := getEnabledComponents(cfg)
+	// Get enabled components from project.components
 	enabledMap := make(map[string]bool)
-	for _, comp := range enabledComponents {
+	for _, comp := range cfg.Project.Components {
 		enabledMap[comp] = true
 	}
 
@@ -124,8 +124,6 @@ func runComponentList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// internal/cli/component.go - Updated runComponentAdd function
-
 func runComponentAdd(cmd *cobra.Command, args []string) error {
 	componentID := args[0]
 
@@ -146,93 +144,88 @@ func runComponentAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load configuration")
 	}
 
-	// Check if already enabled
-	enabledComponents := getEnabledComponents(cfg)
-	for _, enabled := range enabledComponents {
+	// Check if already enabled in project.components
+	for _, enabled := range cfg.Project.Components {
 		if enabled == componentID {
 			printWarning(fmt.Sprintf("Component '%s' is already enabled", componentID))
 			return nil
 		}
 	}
 
-	// Update configuration based on component
-	if err := enableComponent(cfg, comp); err != nil {
+	// Check dependencies
+	deps := components.GetComponentDependencies(componentID)
+	missingDeps := []string{}
+	for _, dep := range deps {
+		found := false
+		for _, enabled := range cfg.Project.Components {
+			if enabled == dep {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missingDeps = append(missingDeps, dep)
+		}
+	}
+
+	if len(missingDeps) > 0 {
+		fmt.Printf("\n%s Component '%s' requires: %s\n",
+			warningColor("⚠"),
+			componentID,
+			strings.Join(missingDeps, ", "))
+
+		var confirm bool
+		prompt := &survey.Confirm{
+			Message: "Add required components?",
+			Default: true,
+		}
+		if err := survey.AskOne(prompt, &confirm); err != nil {
+			return err
+		}
+
+		if !confirm {
+			return fmt.Errorf("cannot add %s without required components", componentID)
+		}
+
+		// Add missing dependencies first
+		for _, dep := range missingDeps {
+			depComp, _ := components.GetComponent(dep)
+			if err := addComponent(cfg, depComp); err != nil {
+				return fmt.Errorf("failed to add dependency %s: %w", dep, err)
+			}
+			printSuccess(fmt.Sprintf("Added required component: %s", depComp.Name))
+		}
+	}
+
+	// Add the component
+	if err := addComponent(cfg, comp); err != nil {
 		return err
 	}
 
-	// Save configuration first
+	// Save configuration
 	if err := config.Save(); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
 	printSuccess(fmt.Sprintf("Added component: %s", comp.Name))
 
-	// If component has models, run interactive model selection
-	if len(comp.Models) > 0 && (comp.ID == "llm" || comp.ID == "embedding") {
+	// Handle model selection for AI components
+	if components.IsAIComponent(componentID) && len(comp.Models) > 0 {
 		fmt.Println()
-
-		// Ask if they want to select a model now
-		fmt.Printf("Would you like to select a model now? (Y/n): ")
-		var response string
-		fmt.Scanln(&response)
-
-		if response == "" || strings.ToLower(response) == "y" {
-			// Create Ollama manager
-			manager := models.NewManager("http://localhost:11434")
-
-			// Select model based on component type
-			var selectedModel string
-			if comp.ID == "embedding" {
-				selectedModel, err = selectEmbeddingModel(manager)
-			} else {
-				selectedModel, err = selectComponentModel(comp, manager)
-			}
-
-			if err != nil {
-				printWarning(fmt.Sprintf("Model selection cancelled: %v", err))
-			} else if selectedModel != "" {
-				// Update config with selected model
-				v := config.GetViper()
-				currentModels := cfg.Services.AI.Models
-
-				// Add model if not already in list
-				modelExists := false
-				for _, m := range currentModels {
-					if m == selectedModel {
-						modelExists = true
-						break
-					}
-				}
-
-				if !modelExists {
-					currentModels = append(currentModels, selectedModel)
-					v.Set("services.ai.models", currentModels)
-
-					// Set as default if it's the first model
-					if len(currentModels) == 1 {
-						v.Set("services.ai.default", selectedModel)
-					}
-
-					// Save updated config
-					if err := config.Save(); err != nil {
-						printWarning("Failed to save model selection")
-					} else {
-						printSuccess(fmt.Sprintf("Model '%s' configured", selectedModel))
-					}
-				}
+		var confirm bool
+		prompt := &survey.Confirm{
+			Message: "Would you like to select a model now?",
+			Default: true,
+		}
+		if err := survey.AskOne(prompt, &confirm); err == nil && confirm {
+			if err := selectAndConfigureModel(cfg, comp); err != nil {
+				printWarning(fmt.Sprintf("Model selection failed: %v", err))
 			}
 		}
 	}
 
 	// Show next steps
-	fmt.Println("\nNext steps:")
-
-	// Show restart command for AI components
-	if comp.ID == "llm" || comp.ID == "embedding" {
-		fmt.Println("  • Restart services: lc restart")
-	} else if len(comp.Services) > 0 {
-		fmt.Printf("  • Start the service: lc start %s\n", comp.Services[0])
-	}
+	showComponentNextSteps(comp)
 
 	return nil
 }
@@ -258,9 +251,8 @@ func runComponentRemove(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check if enabled
-	enabledComponents := getEnabledComponents(cfg)
 	found := false
-	for _, enabled := range enabledComponents {
+	for _, enabled := range cfg.Project.Components {
 		if enabled == componentID {
 			found = true
 			break
@@ -272,8 +264,52 @@ func runComponentRemove(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Update configuration
-	if err := disableComponent(cfg, comp); err != nil {
+	// Check for dependent components
+	dependents := components.GetDependentComponents(componentID, cfg.Project.Components)
+	if len(dependents) > 0 {
+		fmt.Printf("\n%s The following components depend on %s: %s\n",
+			warningColor("⚠"),
+			componentID,
+			strings.Join(dependents, ", "))
+
+		var confirm bool
+		prompt := &survey.Confirm{
+			Message: "Remove dependent components too?",
+			Default: false,
+		}
+		if err := survey.AskOne(prompt, &confirm); err != nil {
+			return err
+		}
+
+		if !confirm {
+			return fmt.Errorf("cannot remove %s while dependent components are enabled", componentID)
+		}
+
+		// Remove dependents first
+		for _, dep := range dependents {
+			depComp, _ := components.GetComponent(dep)
+			if err := removeComponent(cfg, depComp); err != nil {
+				return fmt.Errorf("failed to remove dependent %s: %w", dep, err)
+			}
+			printSuccess(fmt.Sprintf("Removed dependent component: %s", depComp.Name))
+		}
+	}
+
+	// Confirm removal
+	var confirm bool
+	confirmPrompt := &survey.Confirm{
+		Message: fmt.Sprintf("Remove component '%s'?", comp.Name),
+		Default: true,
+	}
+	if err := survey.AskOne(confirmPrompt, &confirm); err != nil {
+		return err
+	}
+	if !confirm {
+		return nil
+	}
+
+	// Remove the component
+	if err := removeComponent(cfg, comp); err != nil {
 		return err
 	}
 
@@ -283,6 +319,9 @@ func runComponentRemove(cmd *cobra.Command, args []string) error {
 	}
 
 	printSuccess(fmt.Sprintf("Removed component: %s", comp.Name))
+
+	fmt.Println("\nNext steps:")
+	fmt.Println("  • Restart services to apply changes: lc restart")
 
 	return nil
 }
@@ -315,6 +354,17 @@ func runComponentInfo(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Dependencies
+	deps := components.GetComponentDependencies(comp.ID)
+	if len(deps) > 0 {
+		fmt.Printf("\nDepends On:\n")
+		for _, dep := range deps {
+			if depComp, err := components.GetComponent(dep); err == nil {
+				fmt.Printf("  • %s (%s)\n", depComp.Name, dep)
+			}
+		}
+	}
+
 	// Available models
 	if len(comp.Models) > 0 {
 		fmt.Printf("\nAvailable Models:\n")
@@ -338,208 +388,39 @@ func runComponentInfo(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	return nil
-}
-
-// getEnabledComponents returns list of enabled component IDs from config
-func getEnabledComponents(cfg *config.Config) []string {
-	var components []string
-
-	// Check AI services (LLM and embedding use same service)
-	// Only consider it enabled if models are actually configured
-	if cfg.Services.AI.Port > 0 && len(cfg.Services.AI.Models) > 0 {
-		// Check for LLM models
-		for _, model := range cfg.Services.AI.Models {
-			if !models.IsEmbeddingModel(model) {
-				components = appendUnique(components, "llm")
+	// Check if enabled
+	if cfg := config.Get(); cfg != nil {
+		enabled := false
+		for _, id := range cfg.Project.Components {
+			if id == comp.ID {
+				enabled = true
 				break
 			}
 		}
 
-		// Check for embedding models
-		for _, model := range cfg.Services.AI.Models {
-			if models.IsEmbeddingModel(model) {
-				components = appendUnique(components, "embedding")
-				break
+		fmt.Printf("\nStatus: ")
+		if enabled {
+			fmt.Println(successColor("Enabled"))
+
+			// Show current model for AI components
+			if components.IsAIComponent(comp.ID) {
+				for _, model := range cfg.Services.AI.Models {
+					isEmbedding := models.IsEmbeddingModel(model)
+					if (comp.ID == "embedding" && isEmbedding) ||
+						(comp.ID == "llm" && !isEmbedding) {
+						fmt.Printf("Current Model: %s\n", model)
+						break
+					}
+				}
 			}
+		} else {
+			fmt.Println(errorColor("Disabled"))
 		}
-	}
-
-	// Check database - only if actually configured with a type
-	if cfg.Services.Database.Type != "" && cfg.Services.Database.Port > 0 {
-		// Check for pgvector
-		for _, ext := range cfg.Services.Database.Extensions {
-			if ext == "pgvector" {
-				components = appendUnique(components, "vector")
-				break
-			}
-		}
-	}
-
-	// Check cache - only if type is set
-	if cfg.Services.Cache.Type != "" && cfg.Services.Cache.Port > 0 {
-		components = appendUnique(components, "cache")
-	}
-
-	// Check queue - only if type is set
-	if cfg.Services.Queue.Type != "" && cfg.Services.Queue.Port > 0 {
-		components = appendUnique(components, "queue")
-	}
-
-	// Check storage - only if type is set
-	if cfg.Services.Storage.Type != "" && cfg.Services.Storage.Port > 0 {
-		components = appendUnique(components, "storage")
-	}
-
-	// Check MongoDB - only if type is set
-	if cfg.Services.MongoDB.Type != "" && cfg.Services.MongoDB.Port > 0 {
-		components = appendUnique(components, "mongodb")
-	}
-
-	// Check STT/Whisper - only if type is set
-	//if cfg.Services.Whisper.Type != "" && cfg.Services.Whisper.Port > 0 {
-	//	components = appendUnique(components, "stt")
-	//}
-
-	return components
-}
-
-// enableComponent updates config to enable a component
-func enableComponent(cfg *config.Config, comp components.Component) error {
-	v := config.GetViper()
-
-	switch comp.ID {
-	case "llm", "embedding":
-		// Enable AI service if not already
-		if cfg.Services.AI.Port == 0 {
-			v.Set("services.ai.port", 11434)
-		}
-
-	case "vector":
-		// Enable PostgreSQL with pgvector
-		v.Set("services.database.type", "postgres")
-		v.Set("services.database.port", 5432)
-		v.Set("services.database.extensions", []string{"pgvector"})
-
-	case "cache":
-		v.Set("services.cache.type", "redis")
-		v.Set("services.cache.port", 6379)
-
-	case "queue":
-		v.Set("services.queue.type", "redis")
-		v.Set("services.queue.port", 6380)
-
-	case "storage":
-		v.Set("services.storage.type", "minio")
-		v.Set("services.storage.port", 9000)
-		v.Set("services.storage.console", 9001)
-
-	case "mongodb":
-		v.Set("services.mongodb.type", "mongodb")
-		v.Set("services.mongodb.version", "7.0")
-		v.Set("services.mongodb.port", 27017)
-		v.Set("services.mongodb.replica_set", false)
-		v.Set("services.mongodb.auth_enabled", true)
-
-		//case "stt":
-		//	// Enable Whisper service
-		//	v.Set("services.whisper.type", "localllama")
-		//	v.Set("services.whisper.port", 9000)
-		//	// Model will be set during init process
 	}
 
 	return nil
 }
 
-// Updated disableComponent function to handle AI components
-func disableComponent(cfg *config.Config, comp components.Component) error {
-	v := config.GetViper()
-
-	switch comp.ID {
-	case "llm", "embedding":
-		// Remove only the models for this component type
-		newModels := []string{}
-		removedModel := ""
-
-		for _, model := range cfg.Services.AI.Models {
-			if comp.ID == "embedding" && models.IsEmbeddingModel(model) {
-				removedModel = model
-				continue // Remove embedding models
-			} else if comp.ID == "llm" && !models.IsEmbeddingModel(model) {
-				removedModel = model
-				continue // Remove LLM models
-			}
-			newModels = append(newModels, model)
-		}
-
-		v.Set("services.ai.models", newModels)
-
-		// Update default if needed
-		if cfg.Services.AI.Default == removedModel && len(newModels) > 0 {
-			v.Set("services.ai.default", newModels[0])
-		}
-
-		// If no models left, disable the AI service
-		if len(newModels) == 0 {
-			v.Set("services.ai.port", 0)
-			v.Set("services.ai.default", "")
-		}
-
-	case "vector":
-		// Remove pgvector extension
-		extensions := cfg.Services.Database.Extensions
-		newExtensions := []string{}
-		for _, ext := range extensions {
-			if ext != "pgvector" {
-				newExtensions = append(newExtensions, ext)
-			}
-		}
-		v.Set("services.database.extensions", newExtensions)
-
-		// If no extensions left and no other use, disable database
-		if len(newExtensions) == 0 {
-			// Check if any other component needs database
-			// For now, just remove extensions
-		}
-
-	case "cache":
-		v.Set("services.cache.type", "")
-		v.Set("services.cache.port", 0)
-
-	case "queue":
-		v.Set("services.queue.type", "")
-		v.Set("services.queue.port", 0)
-
-	case "storage":
-		v.Set("services.storage.type", "")
-		v.Set("services.storage.port", 0)
-		v.Set("services.storage.console", 0)
-
-	case "mongodb":
-		v.Set("services.mongodb.type", "")
-		v.Set("services.mongodb.version", "")
-		v.Set("services.mongodb.port", 0)
-		v.Set("services.mongodb.replica_set", false)
-		v.Set("services.mongodb.auth_enabled", false)
-
-	case "stt":
-		v.Set("services.whisper.type", "")
-		v.Set("services.whisper.port", 0)
-		v.Set("services.whisper.model", "")
-	}
-
-	return nil
-}
-
-// appendUnique appends a string to slice if not already present
-func appendUnique(slice []string, item string) []string {
-	for _, existing := range slice {
-		if existing == item {
-			return slice
-		}
-	}
-	return append(slice, item)
-}
 func runComponentUpdate(cmd *cobra.Command, args []string) error {
 	componentID := args[0]
 
@@ -554,6 +435,11 @@ func runComponentUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown component: %s", componentID)
 	}
 
+	// Only AI components can be updated
+	if !components.IsAIComponent(componentID) {
+		return fmt.Errorf("only AI components (llm, embedding, stt) can be updated")
+	}
+
 	// Load config
 	cfg := config.Get()
 	if cfg == nil {
@@ -561,98 +447,272 @@ func runComponentUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check if enabled
-	enabledComponents := getEnabledComponents(cfg)
-	found := false
-	for _, enabled := range enabledComponents {
-		if enabled == componentID {
-			found = true
+	enabled := false
+	for _, id := range cfg.Project.Components {
+		if id == componentID {
+			enabled = true
 			break
 		}
 	}
 
-	if !found {
-		printWarning(fmt.Sprintf("Component '%s' is not enabled", componentID))
-		return nil
-	}
-
-	// Only AI components can be updated (model change)
-	if componentID != "llm" && componentID != "embedding" {
-		printWarning("Only LLM and embedding components can be updated")
-		return nil
+	if !enabled {
+		return fmt.Errorf("component '%s' is not enabled", componentID)
 	}
 
 	// Find current model
 	var currentModel string
 	for _, model := range cfg.Services.AI.Models {
-		if componentID == "embedding" && models.IsEmbeddingModel(model) {
-			currentModel = model
-			break
-		} else if componentID == "llm" && !models.IsEmbeddingModel(model) {
+		isEmbedding := models.IsEmbeddingModel(model)
+		if (componentID == "embedding" && isEmbedding) ||
+			(componentID == "llm" && !isEmbedding) {
 			currentModel = model
 			break
 		}
 	}
 
-	fmt.Printf("Current %s model: %s\n", componentID, currentModel)
-	fmt.Println("\nSelect new model:")
-
-	// Create Ollama manager
-	manager := models.NewManager("http://localhost:11434")
+	if currentModel == "" {
+		fmt.Printf("No model currently configured for %s\n", componentID)
+	} else {
+		fmt.Printf("Current %s model: %s\n", componentID, currentModel)
+	}
 
 	// Select new model
+	if err := selectAndConfigureModel(cfg, comp); err != nil {
+		return err
+	}
+
+	// Show next steps
+	fmt.Println("\nNext steps:")
+	fmt.Println("  • Restart services to apply changes: lc restart")
+
+	if currentModel != "" {
+		fmt.Printf("  • Remove old model if no longer needed: lc models remove %s\n", currentModel)
+	}
+
+	return nil
+}
+
+// Helper functions
+
+// addComponent adds a component to the configuration
+func addComponent(cfg *config.Config, comp components.Component) error {
+	// Add to project.components
+	cfg.Project.Components = append(cfg.Project.Components, comp.ID)
+
+	// Configure the service
+	switch comp.ID {
+	case "llm", "embedding", "stt":
+		if cfg.Services.AI.Port == 0 {
+			cfg.Services.AI = config.AIConfig{
+				Port:    11434,
+				Models:  []string{},
+				Default: "",
+			}
+		}
+
+	case "database":
+		cfg.Services.Database = config.DatabaseConfig{
+			Type:       "postgres",
+			Version:    "16",
+			Port:       5432,
+			Extensions: []string{},
+		}
+
+	case "vector":
+		// Ensure database is configured
+		if cfg.Services.Database.Type == "" {
+			cfg.Services.Database = config.DatabaseConfig{
+				Type:       "postgres",
+				Version:    "16",
+				Port:       5432,
+				Extensions: []string{"pgvector"},
+			}
+		} else {
+			// Add pgvector extension
+			cfg.Services.Database.Extensions = append(cfg.Services.Database.Extensions, "pgvector")
+		}
+
+	case "mongodb":
+		cfg.Services.MongoDB = config.MongoDBConfig{
+			Type:        "mongodb",
+			Version:     "7.0",
+			Port:        27017,
+			ReplicaSet:  false,
+			AuthEnabled: true,
+		}
+
+	case "cache":
+		cfg.Services.Cache = config.CacheConfig{
+			Type:            "redis",
+			Port:            6379,
+			MaxMemory:       "256mb",
+			MaxMemoryPolicy: "allkeys-lru",
+			Persistence:     false,
+		}
+
+	case "queue":
+		cfg.Services.Queue = config.QueueConfig{
+			Type:            "redis",
+			Port:            6380,
+			MaxMemory:       "512mb",
+			MaxMemoryPolicy: "noeviction",
+			Persistence:     true,
+			AppendOnly:      true,
+			AppendFsync:     "everysec",
+		}
+
+	case "storage":
+		cfg.Services.Storage = config.StorageConfig{
+			Type:    "minio",
+			Port:    9000,
+			Console: 9001,
+		}
+	}
+
+	return nil
+}
+
+// removeComponent removes a component from the configuration
+func removeComponent(cfg *config.Config, comp components.Component) error {
+	// Remove from project.components
+	newComponents := []string{}
+	for _, c := range cfg.Project.Components {
+		if c != comp.ID {
+			newComponents = append(newComponents, c)
+		}
+	}
+	cfg.Project.Components = newComponents
+
+	// Clear service configuration
+	switch comp.ID {
+	case "llm", "embedding", "stt":
+		// Remove models for this component type
+		newModels := []string{}
+		for _, model := range cfg.Services.AI.Models {
+			isEmbedding := models.IsEmbeddingModel(model)
+			if (comp.ID == "embedding" && !isEmbedding) ||
+				(comp.ID == "llm" && isEmbedding) ||
+				(comp.ID == "stt") {
+				newModels = append(newModels, model)
+			}
+		}
+		cfg.Services.AI.Models = newModels
+
+		// Clear AI service if no models left
+		if len(newModels) == 0 {
+			cfg.Services.AI = config.AIConfig{}
+		}
+
+	case "vector":
+		// Remove pgvector extension
+		newExtensions := []string{}
+		for _, ext := range cfg.Services.Database.Extensions {
+			if ext != "pgvector" {
+				newExtensions = append(newExtensions, ext)
+			}
+		}
+		cfg.Services.Database.Extensions = newExtensions
+
+	case "database":
+		// Only clear if vector is not enabled
+		hasVector := false
+		for _, c := range newComponents {
+			if c == "vector" {
+				hasVector = true
+				break
+			}
+		}
+		if !hasVector {
+			cfg.Services.Database = config.DatabaseConfig{}
+		}
+
+	case "mongodb":
+		cfg.Services.MongoDB = config.MongoDBConfig{}
+
+	case "cache":
+		cfg.Services.Cache = config.CacheConfig{}
+
+	case "queue":
+		cfg.Services.Queue = config.QueueConfig{}
+
+	case "storage":
+		cfg.Services.Storage = config.StorageConfig{}
+	}
+
+	return nil
+}
+
+// selectAndConfigureModel handles model selection for AI components
+func selectAndConfigureModel(cfg *config.Config, comp components.Component) error {
+	manager := models.NewManager("http://localhost:11434")
+
 	var selectedModel string
-	if componentID == "embedding" {
+	var err error
+
+	if comp.ID == "embedding" {
 		selectedModel, err = selectEmbeddingModel(manager)
 	} else {
 		selectedModel, err = selectComponentModel(comp, manager)
 	}
 
 	if err != nil || selectedModel == "" {
-		printWarning("Model selection cancelled")
-		return nil
+		return fmt.Errorf("model selection cancelled")
 	}
 
-	// Update config
-	v := config.GetViper()
+	// Update models list
 	newModels := []string{}
 
-	// Keep other models, replace the one for this component
+	// Keep models for other component types
 	for _, model := range cfg.Services.AI.Models {
-		if componentID == "embedding" && models.IsEmbeddingModel(model) {
-			continue // Skip old embedding model
-		} else if componentID == "llm" && !models.IsEmbeddingModel(model) {
-			continue // Skip old LLM model
+		isEmbedding := models.IsEmbeddingModel(model)
+		if (comp.ID == "embedding" && !isEmbedding) ||
+			(comp.ID == "llm" && isEmbedding) {
+			newModels = append(newModels, model)
 		}
-		newModels = append(newModels, model)
 	}
 
-	// Add new model
+	// Add the new model
 	newModels = append(newModels, selectedModel)
-	v.Set("services.ai.models", newModels)
+	cfg.Services.AI.Models = newModels
 
-	// Update default if it was the old model
-	if cfg.Services.AI.Default == currentModel {
-		v.Set("services.ai.default", selectedModel)
+	// Update default if needed
+	if comp.ID == "llm" && cfg.Services.AI.Default == "" {
+		cfg.Services.AI.Default = selectedModel
 	}
 
 	// Save configuration
 	if err := config.Save(); err != nil {
-		return fmt.Errorf("failed to save configuration: %w", err)
+		return fmt.Errorf("failed to save model configuration: %w", err)
 	}
 
-	printSuccess(fmt.Sprintf("Updated %s model: %s → %s", componentID, currentModel, selectedModel))
-
-	// Offer to remove old model
-	fmt.Printf("\nWould you like to remove the old model '%s'? (y/N): ", currentModel)
-	var response string
-	fmt.Scanln(&response)
-
-	if strings.ToLower(response) == "y" {
-		fmt.Printf("Run: lc models remove %s\n", currentModel)
-	}
-
-	fmt.Println("\nNext steps:")
-	fmt.Println("  • Restart services: lc restart")
-
+	printSuccess(fmt.Sprintf("Configured %s model: %s", comp.ID, selectedModel))
 	return nil
+}
+
+// showComponentNextSteps shows next steps after adding a component
+func showComponentNextSteps(comp components.Component) {
+	fmt.Println("\nNext steps:")
+
+	if len(comp.Services) > 0 {
+		fmt.Println("  • Restart services to apply changes: lc restart")
+	}
+
+	if comp.ID == "vector" {
+		fmt.Println("  • Create vector table: lc db exec \"CREATE EXTENSION IF NOT EXISTS vector;\"")
+	}
+
+	if comp.ID == "storage" {
+		fmt.Println("  • Access MinIO console: lc service url minio-console")
+	}
+}
+
+// getEnabledComponents returns list of enabled component IDs from config
+// This uses project.components as the source of truth
+func getEnabledComponents(cfg *config.Config) []string {
+	if cfg == nil || cfg.Project.Components == nil {
+		return []string{}
+	}
+
+	// Return the project.components array directly - this is the source of truth
+	return cfg.Project.Components
 }

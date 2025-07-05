@@ -11,8 +11,9 @@ const (
 	MB = 1024 * 1024
 )
 
-// ModelOption represents an AI model option for a component
-type ModelOption struct {
+// Model represents an AI model option for a component
+// This is the type name used throughout the codebase
+type Model struct {
 	Name       string
 	Size       string
 	RAM        int64
@@ -28,9 +29,16 @@ type Component struct {
 	Description string
 	Category    string                 // "ai", "database", "infrastructure"
 	Services    []string               // Required docker services
-	Models      []ModelOption          // Available models (for AI components)
+	Models      []Model                // Available models (for AI components)
 	MinRAM      int64                  // Minimum RAM requirement
 	Config      map[string]interface{} // Additional configuration
+}
+
+// ProjectTemplate represents a project type with preset components
+type ProjectTemplate struct {
+	Name        string
+	Description string
+	Components  []string
 }
 
 // Registry holds all available components
@@ -41,7 +49,7 @@ var Registry = map[string]Component{
 		Description: "Large language models for text generation, chat, and completion",
 		Category:    "ai",
 		Services:    []string{"ai"},
-		Models: []ModelOption{
+		Models: []Model{
 			{Name: "qwen2.5:3b", Size: "2.3GB", RAM: 4 * GB, Default: true},
 			{Name: "llama3.2:3b", Size: "2.0GB", RAM: 4 * GB},
 			{Name: "deepseek-coder:1.3b", Size: "1.5GB", RAM: 3 * GB},
@@ -56,27 +64,14 @@ var Registry = map[string]Component{
 		Description: "Text embeddings for semantic search and similarity",
 		Category:    "ai",
 		Services:    []string{"ai"},
-		Models: []ModelOption{
-			{Name: "nomic-embed-text", Size: "274MB", Dimensions: 768, Default: true},
-			{Name: "mxbai-embed-large", Size: "670MB", Dimensions: 1024},
-			{Name: "all-minilm", Size: "46MB", Dimensions: 384},
-			{Name: "bge-small", Size: "134MB", Dimensions: 384},
+		Models: []Model{
+			{Name: "nomic-embed-text", Size: "274MB", RAM: 768 * MB, Dimensions: 768, Default: true},
+			{Name: "mxbai-embed-large", Size: "670MB", RAM: 1 * GB, Dimensions: 1024},
+			{Name: "all-minilm", Size: "46MB", RAM: 256 * MB, Dimensions: 384},
+			{Name: "bge-small", Size: "134MB", RAM: 512 * MB, Dimensions: 384},
 		},
 		MinRAM: 2 * GB,
 	},
-	//"stt": {
-	//	ID:          "stt",
-	//	Name:        "Speech-to-Text (Whisper)",
-	//	Description: "Convert speech to text using Whisper models",
-	//	Category:    "ai",
-	//	Services:    []string{"whisper"},
-	//	Models: []ModelOption{
-	//		{Name: "whisper-tiny", Size: "39MB", RAM: 1 * GB},
-	//		{Name: "whisper-base", Size: "74MB", RAM: 1 * GB, Default: true},
-	//		{Name: "whisper-small", Size: "244MB", RAM: 2 * GB},
-	//	},
-	//	MinRAM: 1 * GB,
-	//},
 	"database": {
 		ID:          "database",
 		Name:        "Database (PostgreSQL)",
@@ -133,9 +128,14 @@ var Registry = map[string]Component{
 
 // ProjectTemplates defines component sets for project types
 var ProjectTemplates = map[string]ProjectTemplate{
+	"custom": {
+		Name:        "Custom",
+		Description: "Select components manually",
+		Components:  []string{},
+	},
 	"rag": {
-		Name:        "RAG/Knowledge Base",
-		Description: "Build AI-powered search and Q&A systems",
+		Name:        "RAG Application",
+		Description: "Retrieval-augmented generation with vector search",
 		Components:  []string{"llm", "embedding", "database", "vector", "cache"},
 	},
 	"chatbot": {
@@ -144,32 +144,15 @@ var ProjectTemplates = map[string]ProjectTemplate{
 		Components:  []string{"llm", "database", "cache"},
 	},
 	"fullstack": {
-		Name:        "Full-Stack Application",
-		Description: "Complete application with SQL, NoSQL, cache, and storage",
-		Components:  []string{"llm", "database", "mongodb", "cache", "queue", "storage"},
+		Name:        "Full Stack App",
+		Description: "Complete application with all necessary components",
+		Components:  []string{"llm", "database", "cache", "queue", "storage"},
 	},
-	//"voice": {
-	//	Name:        "Voice Assistant",
-	//	Description: "Build voice-enabled AI applications",
-	//	Components:  []string{"llm", "stt", "cache"},
-	//},
-	"api": {
-		Name:        "API Service",
-		Description: "AI-powered REST API backend",
-		Components:  []string{"llm", "cache", "queue"},
+	"simple": {
+		Name:        "Simple LLM",
+		Description: "Just language model, no additional services",
+		Components:  []string{"llm"},
 	},
-	"custom": {
-		Name:        "Custom",
-		Description: "Select components manually",
-		Components:  []string{},
-	},
-}
-
-// ProjectTemplate represents a project type with preset components
-type ProjectTemplate struct {
-	Name        string
-	Description string
-	Components  []string
 }
 
 // GetComponent returns a component by ID
@@ -196,6 +179,35 @@ func GetComponentsByCategory(category string) []Component {
 			components = append(components, comp)
 		}
 	}
+	return components
+}
+
+// GetAllComponents returns all available components
+func GetAllComponents() []Component {
+	var components []Component
+	// Use a specific order
+	order := []string{"llm", "embedding", "database", "vector", "mongodb", "cache", "queue", "storage", "stt"}
+
+	for _, id := range order {
+		if comp, ok := Registry[id]; ok {
+			components = append(components, comp)
+		}
+	}
+
+	// Add any components not in the order list
+	for id, comp := range Registry {
+		found := false
+		for _, orderedID := range order {
+			if id == orderedID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			components = append(components, comp)
+		}
+	}
+
 	return components
 }
 
@@ -250,4 +262,49 @@ func IsAIComponent(id string) bool {
 		return false
 	}
 	return comp.Category == "ai" && len(comp.Models) > 0
+}
+
+// ValidateComponentDependencies checks if component dependencies are satisfied
+func ValidateComponentDependencies(componentIDs []string) error {
+	components := make(map[string]bool)
+	for _, id := range componentIDs {
+		components[id] = true
+	}
+
+	// Check vector requires database
+	if components["vector"] && !components["database"] {
+		return fmt.Errorf("vector search requires database component")
+	}
+
+	return nil
+}
+
+// GetComponentDependencies returns required components for a given component
+func GetComponentDependencies(componentID string) []string {
+	switch componentID {
+	case "vector":
+		return []string{"database"}
+	default:
+		return []string{}
+	}
+}
+
+// GetDependentComponents returns components that depend on the given component
+func GetDependentComponents(componentID string, enabledComponents []string) []string {
+	var dependents []string
+
+	enabled := make(map[string]bool)
+	for _, id := range enabledComponents {
+		enabled[id] = true
+	}
+
+	switch componentID {
+	case "database":
+		// Vector depends on database
+		if enabled["vector"] {
+			dependents = append(dependents, "vector")
+		}
+	}
+
+	return dependents
 }
