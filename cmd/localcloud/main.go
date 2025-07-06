@@ -10,6 +10,9 @@ import (
 var templatesFS embed.FS
 
 func main() {
+	// Set version information (Version, Commit, BuildDate are defined in version.go)
+	cli.SetVersionInfo(Version, Commit, BuildDate)
+	
 	// Initialize template filesystem for setup command
 	cli.InitializeTemplateFS(templatesFS)
 

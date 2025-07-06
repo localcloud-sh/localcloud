@@ -26,6 +26,21 @@ var (
 )
 
 // rootCmd represents the base command
+// Version information - set by main.go
+var (
+	version   = "dev"
+	commit    = "unknown"
+	buildDate = "unknown"
+)
+
+// SetVersionInfo sets the version information from build-time variables
+func SetVersionInfo(v, c, d string) {
+	version = v
+	commit = c
+	buildDate = d
+	rootCmd.Version = v
+}
+
 var rootCmd = &cobra.Command{
 	Use:     "localcloud",
 	Aliases: []string{"lc"},
@@ -42,7 +57,7 @@ and compute services entirely on your machine.
 - Built-in export tools for seamless cloud migration
 
 You can use either 'localcloud' or 'lc' to run commands.`,
-	Version: "0.2.0",
+	Version: version,
 	Example: `  # Complete AI development setup
   lc setup my-ai-app
   cd my-ai-app
