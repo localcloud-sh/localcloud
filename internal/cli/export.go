@@ -16,9 +16,8 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
-	"github.com/localcloud-sh/loca
 	"github.com/localcloud-sh/localcloud/internal/config"
-	_ "github.com/lib/pq"
+	"github.com/localcloud-sh/localcloud/internal/services/postgres"
 	"github.com/minio/minio-go/v7"
 	"github.com/spf13/cobra"
 )
@@ -193,8 +192,8 @@ func init() {
 	exportDBCmd.Flags().StringVar(&exportOutput, "output", "", "Output directory or file path")
 	exportMongoCmd.Flags().StringVar(&exportOutput, "output", "", "Output directory or file path")
 	exportStorageCmd.Flags().StringVar(&exportOutput, "output", "", "Output directory or file path")
+	exportVectorCmd.Flags().StringVar(&exportOutput, "output", "", "Output directory or file path")
 
-	
 	// Vector-specific flags
 	exportVectorCmd.Flags().StringVar(&exportCollection, "collection", "", "Export specific collection only (default: all collections)")
 
@@ -531,8 +530,8 @@ func exportVectorDatabase(cfg *config.Config) error {
 
 	// Create database connection
 	connStr := fmt.Sprintf("host=localhost port=%d user=localcloud password=localcloud dbname=localcloud sslmode=disable",
+		cfg.Services.Database.Port)
 
-	
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
@@ -546,8 +545,8 @@ func exportVectorDatabase(cfg *config.Config) error {
 
 	// Build query with optional collection filter
 	var query string
+	var args []interface{}
 
-	
 	if exportCollection != "" {
 		query = `
 			SELECT id, document_id, content, embedding, metadata, 
@@ -652,7 +651,7 @@ func exportVectorDatabase(cfg *config.Config) error {
 	}
 
 	printSuccess(fmt.Sprintf("Vector database exported to: %s", outputFile))
-	
+
 	return nil
 }
 
@@ -661,25 +660,25 @@ func parsePostgresArray(arrayStr string, result *[]float64) error {
 	// Remove brackets and split by commas
 	if !strings.HasPrefix(arrayStr, "[") || !strings.HasSuffix(arrayStr, "]") {
 		return fmt.Errorf("invalid array format: %s", arrayStr)
+	}
 
-	
 	content := strings.TrimPrefix(strings.TrimSuffix(arrayStr, "]"), "[")
 	if content == "" {
 		*result = []float64{}
 		return nil
+	}
 
-	
 	parts := strings.Split(content, ",")
+	*result = make([]float64, len(parts))
 
-	
 	for i, part := range parts {
 		var val float64
 		if _, err := fmt.Sscanf(strings.TrimSpace(part), "%f", &val); err != nil {
 			return fmt.Errorf("failed to parse float: %s", part)
 		}
 		(*result)[i] = val
+	}
 
-	
 	return nil
 }
 
@@ -689,16 +688,16 @@ func generateImportScript(embeddings []EmbeddingData) string {
 		return ""
 	}
 
+	var script strings.Builder
 
-	
 	script.WriteString("-- LocalCloud Vector Database Import Script\n")
 	script.WriteString("-- Generated on: " + time.Now().Format("2006-01-02 15:04:05") + "\n\n")
 	script.WriteString("-- Create embeddings table if it doesn't exist\n")
 	script.WriteString("CREATE EXTENSION IF NOT EXISTS vector;\n")
 
 	// Determine dimension from first embedding
+	dimension := len(embeddings[0].Embedding)
 
-	
 	script.WriteString(fmt.Sprintf(`CREATE TABLE IF NOT EXISTS localcloud.embeddings (
     id SERIAL PRIMARY KEY,
     document_id VARCHAR(255) NOT NULL,

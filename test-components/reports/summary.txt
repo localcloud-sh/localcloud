@@ -1,8 +1,0 @@
-LocalCloud Component Test Summary
-=================================
-Date: Sat Jul  5 20:54:56 +03 2025
-Total Tests: 1
-Passed: 1
-Failed: 0
-Duration: 12s
-Success Rate: 100%
