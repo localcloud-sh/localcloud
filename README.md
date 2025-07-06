@@ -3,7 +3,7 @@
   <img src=".github/assets/banner.svg" alt="LocalCloud - Ship AI Products Before Your Coffee Gets Cold" width="100%">
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)](go.mod)
+[![Language Agnostic](https://img.shields.io/badge/Language-Agnostic-brightgreen?logo=polywork)](README.md)
 [![Docker Required](https://img.shields.io/badge/Docker-Required-2496ED?logo=docker)](https://docker.com)
 [![GitHub release](https://img.shields.io/github/v/release/localcloud-sh/localcloud?color=success)](https://github.com/localcloud-sh/localcloud/releases)
 [![GitHub issues](https://img.shields.io/github/issues/localcloud-sh/localcloud)](https://github.com/localcloud-sh/localcloud/issues)
@@ -15,6 +15,8 @@
 </div>
 
 **From idea to running code in minutes, not weeks.** LocalCloud delivers developer-friendly PostgreSQL, MongoDB, vector databases, AI models, Redis cache, job queues, and S3-like storage instantly. No DevOps, no cloud bills, no infrastructure drama.
+
+**🌐 Programming Language Agnostic** - Works seamlessly with Python, Node.js, Go, Java, Rust, PHP, .NET, or any language. LocalCloud provides standard service APIs (PostgreSQL, MongoDB, Redis, S3, etc.) that integrate with your existing code regardless of technology stack.
 
 ## 🚀 **Why Developers Choose LocalCloud**
 
