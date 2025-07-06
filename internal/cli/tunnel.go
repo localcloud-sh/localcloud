@@ -39,11 +39,15 @@ var (
 	// Multi-service options
 	tunnelComponents []string
 	tunnelPrefix     string
+	tunnelSubdomain  string // Alias for prefix to match docs
 
 	// Flexible service options
 	tunnelServices []string // Format: "name:port" or "name:url"
 	tunnelName     string   // Custom name for single service
 	autoDetect     bool     // Auto-detect services on common ports
+
+	// Provider override for start command
+	tunnelStartProvider string
 )
 
 var tunnelCmd = &cobra.Command{
@@ -138,11 +142,15 @@ func init() {
 	// Multi-service options
 	tunnelStartCmd.Flags().StringSliceVar(&tunnelComponents, "components", []string{}, "Comma-separated list of components to tunnel")
 	tunnelStartCmd.Flags().StringVar(&tunnelPrefix, "prefix", "", "Custom subdomain prefix for tunnel URLs")
+	tunnelStartCmd.Flags().StringVar(&tunnelSubdomain, "subdomain", "", "Custom subdomain (alias for --prefix)")
 
 	// Flexible service options
 	tunnelStartCmd.Flags().StringSliceVar(&tunnelServices, "service", []string{}, "Tunnel arbitrary services (format: name:port or name:url)")
 	tunnelStartCmd.Flags().StringVar(&tunnelName, "name", "", "Custom name for single service tunnel")
 	tunnelStartCmd.Flags().BoolVar(&autoDetect, "auto-detect", false, "Auto-detect and tunnel services on common ports")
+
+	// Provider options
+	tunnelStartCmd.Flags().StringVar(&tunnelStartProvider, "provider", "", "Tunnel provider (cloudflare, ngrok) - overrides config")
 }
 
 func runTunnelSetup(cmd *cobra.Command, args []string) error {
@@ -260,20 +268,44 @@ func setupNgrok(cfg *config.Config) error {
 func runTunnelStart(cmd *cobra.Command, args []string) error {
 	var cfg *config.Config
 
+	// Handle subdomain alias
+	if tunnelSubdomain != "" {
+		tunnelPrefix = tunnelSubdomain
+	}
+
 	// Check if project is initialized
 	if !IsProjectInitialized() {
 		// For tunnel testing, we don't need a full project
 		printInfo("No LocalCloud project found. Running in standalone mode...")
 
+		// Determine provider
+		provider := tunnelStartProvider
+		if provider == "" {
+			provider = tunnelProvider
+		}
+
+		// Auto-detect provider if not specified
+		if provider == "" {
+			if _, err := exec.LookPath("cloudflared"); err == nil {
+				provider = "cloudflare"
+				printInfo("Auto-detected tunnel provider: cloudflare")
+			} else if _, err := exec.LookPath("ngrok"); err == nil {
+				provider = "ngrok"
+				printInfo("Auto-detected tunnel provider: ngrok")
+			} else {
+				return fmt.Errorf("no tunnel provider found. Please install cloudflared ('brew install cloudflared') or ngrok")
+			}
+		}
+
 		// Create minimal config
 		cfg = &config.Config{
 			Project: config.ProjectConfig{
-				Name: "tunnel-test",
+				Name: "tunnel-standalone",
 			},
 			Connectivity: config.ConnectivityConfig{
 				Enabled: true,
 				Tunnel: config.TunnelConfig{
-					Provider: tunnelProvider,
+					Provider: provider,
 				},
 			},
 		}
@@ -282,26 +314,35 @@ func runTunnelStart(cmd *cobra.Command, args []string) error {
 		if cfg == nil {
 			return fmt.Errorf("failed to load configuration")
 		}
+
+		// Override provider if specified
+		if tunnelStartProvider != "" {
+			cfg.Connectivity.Tunnel.Provider = tunnelStartProvider
+		}
 	}
 
-	// Determine which services to tunnel
-	services := determineServicesToTunnel(cfg)
-
-	if len(services) == 0 {
-		return fmt.Errorf("no services specified to tunnel. Use flags like --api, --db, --storage, or --all")
-	}
-
-	// Check for legacy single port mode
+	// Check for legacy single port mode first
 	port, _ := cmd.Flags().GetInt("port")
 	customURL, _ := cmd.Flags().GetString("url")
 
-	if customURL != "" || (!tunnelAll && !tunnelAPI && !tunnelDB && !tunnelMongo && !tunnelStorage && !tunnelAI && !tunnelCache && !tunnelQueue && len(tunnelComponents) == 0 && len(tunnelServices) == 0 && !autoDetect) {
+	// Single port mode if: custom URL provided OR only --port flag used OR no service flags at all
+	isSinglePortMode := customURL != "" ||
+		(!tunnelAll && !tunnelAPI && !tunnelDB && !tunnelMongo && !tunnelStorage && !tunnelAI && !tunnelCache && !tunnelQueue && len(tunnelComponents) == 0 && len(tunnelServices) == 0 && !autoDetect)
+
+	if isSinglePortMode {
 		// Legacy single-service mode - handle --name flag for custom service name
 		serviceName := "tunnel"
 		if tunnelName != "" {
 			serviceName = tunnelName
 		}
 		return runLegacyTunnelWithName(cfg, port, customURL, serviceName)
+	}
+
+	// Determine which services to tunnel for multi-service mode
+	services := determineServicesToTunnel(cfg)
+
+	if len(services) == 0 {
+		return fmt.Errorf("no services specified to tunnel. Use flags like --api, --db, --storage, --all, or --port for single service")
 	}
 
 	// Multi-service mode with reverse proxy
@@ -635,6 +676,23 @@ func runMultiServiceTunnel(cfg *config.Config, services map[string]int) error {
 	proxyPort := proxy.GetProxyPort()
 	cfg.Connectivity.Tunnel.TargetURL = fmt.Sprintf("http://localhost:%d", proxyPort)
 
+	// Ensure connectivity is enabled in config
+	cfg.Connectivity.Enabled = true
+
+	// Set tunnel provider if not set
+	if cfg.Connectivity.Tunnel.Provider == "" {
+		// Try to detect provider
+		if _, err := exec.LookPath("cloudflared"); err == nil {
+			cfg.Connectivity.Tunnel.Provider = "cloudflare"
+			printInfo("Auto-detected tunnel provider: cloudflare")
+		} else if _, err := exec.LookPath("ngrok"); err == nil {
+			cfg.Connectivity.Tunnel.Provider = "ngrok"
+			printInfo("Auto-detected tunnel provider: ngrok")
+		} else {
+			return fmt.Errorf("no tunnel provider found. Please install cloudflared ('brew install cloudflared') or ngrok and run 'lc tunnel setup'")
+		}
+	}
+
 	// Create connectivity manager
 	connMgr, err := network.NewConnectivityManager(cfg)
 	if err != nil {
@@ -656,6 +714,9 @@ func runMultiServiceTunnel(cfg *config.Config, services map[string]int) error {
 	}
 
 	spin.Stop()
+
+	// Add a small delay to ensure tunnel is fully established
+	time.Sleep(2 * time.Second)
 
 	// Get connection info
 	info, err := connMgr.GetConnectionInfo()
@@ -688,6 +749,16 @@ func runMultiServiceTunnel(cfg *config.Config, services map[string]int) error {
 		fmt.Println()
 		fmt.Println("All services are accessible from anywhere with HTTPS!")
 		fmt.Println("Perfect for iOS development and external integrations.")
+	} else {
+		// Debug: No tunnel URL received
+		printError("Failed to establish tunnel connection. Please check:")
+		fmt.Println("  1. Your tunnel provider is configured (run 'lc tunnel setup')")
+		fmt.Println("  2. Cloudflared or ngrok is installed")
+		fmt.Println("  3. You have internet connectivity")
+		fmt.Println("  4. No firewall is blocking the connection")
+		fmt.Println()
+		fmt.Println("Debug: Try running with a single service first:")
+		fmt.Println("  lc tunnel start --port 3000")
 	}
 
 	// Handle interrupt

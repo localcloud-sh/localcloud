@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -183,26 +185,72 @@ func (ct *CloudflareTunnel) connectQuickTunnel(ctx context.Context, port int) (s
 	}
 
 	// Wait for URL to appear in output
-	for i := 0; i < 30; i++ {
-		if strings.Contains(output.String(), "https://") {
-			lines := strings.Split(output.String(), "\n")
+	for i := 0; i < 120; i++ { // Increased timeout to 60 seconds
+		outputStr := output.String()
+
+		if strings.Contains(outputStr, "https://") && strings.Contains(outputStr, ".trycloudflare.com") {
+			fmt.Printf("DEBUG: Found tunnel URL in output: %s\n", outputStr)
+
+			// Try multiple regex patterns to match different cloudflared output formats
+			patterns := []string{
+				`https://[a-zA-Z0-9\-]+\.trycloudflare\.com`,
+				`https://[a-zA-Z0-9\-_]+\.trycloudflare\.com`,
+				`https://[\w\-]+\.trycloudflare\.com`,
+			}
+
+			for _, pattern := range patterns {
+				re := regexp.MustCompile(pattern)
+				matches := re.FindAllString(outputStr, -1)
+				if len(matches) > 0 {
+					ct.url = matches[0]
+					fmt.Printf("DEBUG: Successfully extracted tunnel URL: %s\n", ct.url)
+					return ct.url, nil
+				}
+			}
+
+			// Fallback: simple string extraction
+			lines := strings.Split(outputStr, "\n")
 			for _, line := range lines {
 				if strings.Contains(line, "https://") && strings.Contains(line, ".trycloudflare.com") {
-					// Extract URL from line
-					parts := strings.Fields(line)
-					for _, part := range parts {
-						if strings.HasPrefix(part, "https://") {
-							ct.url = strings.TrimSpace(part)
+					fields := strings.Fields(line)
+					for _, field := range fields {
+						if strings.HasPrefix(field, "https://") && strings.Contains(field, ".trycloudflare.com") {
+							ct.url = strings.TrimSpace(field)
+							fmt.Printf("DEBUG: Fallback extracted tunnel URL: %s\n", ct.url)
 							return ct.url, nil
 						}
 					}
 				}
 			}
 		}
+
+		if i%10 == 0 { // Print less frequent debug messages
+			fmt.Printf("DEBUG: Waiting for tunnel URL (attempt %d)...\n", i+1)
+		}
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	return "", fmt.Errorf("failed to get tunnel URL")
+	return "", fmt.Errorf("failed to get tunnel URL after 60 seconds. Last output: %s", output.String())
+}
+
+// verifyTunnelURL checks if the tunnel URL is accessible
+func (ct *CloudflareTunnel) verifyTunnelURL(url string) error {
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return fmt.Errorf("tunnel URL not accessible: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Accept any HTTP response (200-599) as tunnel is working
+	if resp.StatusCode >= 200 {
+		return nil
+	}
+
+	return fmt.Errorf("tunnel returned unexpected status: %d", resp.StatusCode)
 }
 
 // Disconnect stops the Cloudflare tunnel

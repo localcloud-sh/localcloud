@@ -484,8 +484,15 @@ func showConnectionInfo(cfg *config.Config) {
 			if cfg.Services.Storage.Type != "" {
 				fmt.Printf("✓ Object Storage (MinIO): http://localhost:%d\n", cfg.Services.Storage.Port)
 				fmt.Printf("  - Console: http://localhost:%d\n", cfg.Services.Storage.Console)
-				fmt.Printf("  - Access Key: minioadmin\n")
-				fmt.Printf("  - Secret Key: minioadmin\n")
+
+				// Try to get actual credentials from storage credentials file
+				if creds, err := getStorageCredentials(); err == nil {
+					fmt.Printf("  - Access Key: %s\n", creds.AccessKey)
+					fmt.Printf("  - Secret Key: %s\n", creds.SecretKey)
+				} else {
+					fmt.Printf("  - Access Key: localcloud\n")
+					fmt.Printf("  - Secret Key: <check ~/.localcloud/minio-credentials>\n")
+				}
 			}
 		}
 	}

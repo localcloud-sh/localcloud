@@ -5,6 +5,8 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -13,10 +15,12 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/lib/pq"
+	"github.com/localcloud-sh/loca
 	"github.com/localcloud-sh/localcloud/internal/config"
 	"github.com/localcloud-sh/localcloud/internal/services/postgres"
 	"github.com/minio/minio-go/v7"
-	"github.com/spf13/cobra"
+	_ "github.com/lib/pq"
 )
 
 var exportCmd = &cobra.Command{
@@ -38,6 +42,7 @@ a custom output location with the --output flag.`,
   lc export db
   lc export mongo
   lc export storage
+  lc export vector
 
   # Export to specific location
   lc export all --output=./backups/
@@ -145,19 +150,56 @@ The archive contains:
 	RunE: runExportStorage,
 }
 
+var exportVectorCmd = &cobra.Command{
+	Use:     "vector",
+	Aliases: []string{"embeddings", "pgvector"},
+	Short:   "Export vector database embeddings",
+	Long: `Export vector database embeddings to a JSON file for migration to cloud vector services.
+
+The exported file contains all vector embeddings, metadata, and can be imported to:
+- Pinecone: Using their bulk upsert API
+- Weaviate: Using their batch import functionality  
+- Chroma: Using their add() method with embeddings
+- Qdrant: Using their upsert API
+- Any pgvector instance: Using the included SQL import script
+
+The export includes:
+- Document IDs and content
+- Vector embeddings (1536-dimensional by default)
+- Metadata and collection information
+- SQL script for reimporting to pgvector`,
+	Example: `  # Export to current directory (default filename)
+  lc export vector
+
+  # Export to specific file
+  lc export vector --output=./production-vectors.json
+
+  # Export to specific directory (auto-generated filename)
+  lc export vector --output=./backups/
+
+  # Export specific collection only
+  lc export vector --collection=my-documents`,
+	RunE: runExportVector,
+}
+
 var (
-	exportOutput string
+	exportOutput     string
+	exportCollection string
 )
 
 func init() {
 	// Add flags
-	exportCmd.PersistentFlags().StringVarP(&exportOutput, "output", "o", "", "Output file or directory (default: current directory with auto-generated filenames)")
+
+	
+	// Vector-specific flags
+	exportVectorCmd.Flags().StringVar(&exportCollection, "collection", "", "Export specific collection only (default: all collections)")
 
 	// Add subcommands
 	exportCmd.AddCommand(exportAllCmd)
 	exportCmd.AddCommand(exportDBCmd)
 	exportCmd.AddCommand(exportMongoCmd)
 	exportCmd.AddCommand(exportStorageCmd)
+	exportCmd.AddCommand(exportVectorCmd)
 
 	// Add to root command
 	rootCmd.AddCommand(exportCmd)
@@ -200,6 +242,16 @@ func runExportAll(cmd *cobra.Command, args []string) error {
 			printWarning(fmt.Sprintf("Failed to export Storage: %v", err))
 		} else {
 			exported = append(exported, "Storage")
+		}
+	}
+
+	// Export Vector Database if PostgreSQL is configured (pgvector)
+	if cfg.Services.Database.Type != "" {
+		printInfo("Exporting vector database embeddings...")
+		if err := exportVectorDatabase(cfg); err != nil {
+			printWarning(fmt.Sprintf("Failed to export vector database: %v", err))
+		} else {
+			exported = append(exported, "Vector Database")
 		}
 	}
 
@@ -273,7 +325,7 @@ func exportPostgreSQL(cfg *config.Config) error {
 	)
 
 	// Set password via environment
-	cmd.Env = append(os.Environ(), "PGPASSWORD=localcloud-dev")
+	cmd.Env = append(os.Environ(), "PGPASSWORD=localcloud")
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("pg_dump failed: %w", err)
@@ -429,4 +481,264 @@ func createTarGz(sourceDir, targetFile string) error {
 		_, err = io.Copy(tw, file)
 		return err
 	})
+}
+
+func runExportVector(cmd *cobra.Command, args []string) error {
+	if !IsProjectInitialized() {
+		return fmt.Errorf("no LocalCloud project found")
+	}
+
+	cfg := config.Get()
+	if cfg.Services.Database.Type == "" {
+		return fmt.Errorf("PostgreSQL database not configured (required for vector database)")
+	}
+
+	return exportVectorDatabase(cfg)
+}
+
+// VectorExportData represents the structure for vector database export
+	ExportInfo   ExportInfo      `json:"export_info"`
+	Collections  []string        `json:"collections"`
+	Embeddings   []EmbeddingData `json:"embeddings"`
+	Embeddings   []EmbeddingData  `json:"embeddings"`
+	ImportScript string          `json:"import_script,omitempty"`
+}
+
+type ExportInfo struct {
+	ExportedAt   time.Time `json:"exported_at"`
+	Source       string    `json:"source"`
+	Version      string    `json:"version"`
+	TotalVectors int       `json:"total_vectors"`
+	Dimension    int       `json:"dimension"`
+}
+
+	ID         string                 `json:"id"`
+	DocumentID string                 `json:"document_id"`
+	Content    string                 `json:"content"`
+	Embedding  []float64              `json:"embedding"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	Collection string                 `json:"collection"`
+	CreatedAt  time.Time              `json:"created_at"`
+	CreatedAt    time.Time              `json:"created_at"`
+}
+
+func exportVectorDatabase(cfg *config.Config) error {
+	outputFile := getOutputPath("vector", "json")
+
+	// Create database connection
+	connStr := fmt.Sprintf("host=localhost port=%d user=localcloud password=localcloud dbname=localcloud sslmode=disable",
+
+	
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+	defer db.Close()
+
+	// Test connection
+	if err := db.Ping(); err != nil {
+		return fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	// Build query with optional collection filter
+	var query string
+
+	
+	if exportCollection != "" {
+		query = `
+			SELECT id, document_id, content, embedding, metadata, 
+			       COALESCE(collection_name, 'default') as collection_name, created_at
+			FROM localcloud.embeddings 
+			WHERE collection_name = $1 OR (collection_name IS NULL AND $1 = 'default')
+			ORDER BY created_at`
+		args = append(args, exportCollection)
+	} else {
+		query = `
+			SELECT id, document_id, content, embedding, metadata, 
+			       COALESCE(collection_name, 'default') as collection_name, created_at
+			FROM localcloud.embeddings 
+			ORDER BY created_at`
+	}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to query embeddings: %w", err)
+	}
+	defer rows.Close()
+
+	var embeddings []EmbeddingData
+	var collections = make(map[string]bool)
+	var dimension int
+
+	for rows.Next() {
+		var embedding EmbeddingData
+		var embeddingStr string
+		var metadataStr sql.NullString
+
+		err := rows.Scan(
+			&embedding.DocumentID,
+			&embedding.DocumentID, 
+			&embedding.Content,
+			&embeddingStr,
+			&metadataStr,
+			&embedding.Collection,
+			&embedding.CreatedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Parse vector embedding from PostgreSQL array format
+		if err := parsePostgresArray(embeddingStr, &embedding.Embedding); err != nil {
+			printWarning(fmt.Sprintf("Failed to parse embedding for document %s: %v", embedding.DocumentID, err))
+			continue
+		}
+
+		// Parse metadata JSON
+		if metadataStr.Valid {
+			if err := json.Unmarshal([]byte(metadataStr.String), &embedding.Metadata); err != nil {
+				printWarning(fmt.Sprintf("Failed to parse metadata for document %s: %v", embedding.DocumentID, err))
+			}
+		}
+
+		// Track dimension and collections
+		if len(embedding.Embedding) > 0 {
+			dimension = len(embedding.Embedding)
+		}
+		collections[embedding.Collection] = true
+
+		embeddings = append(embeddings, embedding)
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	// Convert collections map to slice
+	var collectionList []string
+	for collection := range collections {
+		collectionList = append(collectionList, collection)
+	}
+
+	// Create export data structure
+	exportData := VectorExportData{
+		ExportInfo: ExportInfo{
+			ExportedAt:   time.Now(),
+			Source:       "LocalCloud pgvector",
+			Version:      "1.0",
+			TotalVectors: len(embeddings),
+			Dimension:    dimension,
+		Collections:  collectionList,
+		Embeddings:   embeddings,
+		Embeddings:  embeddings,
+		ImportScript: generateImportScript(embeddings),
+	}
+
+	// Write to JSON file
+	file, err := os.Create(outputFile)
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(exportData); err != nil {
+		return fmt.Errorf("failed to encode JSON: %w", err)
+	}
+
+	printSuccess(fmt.Sprintf("Vector database exported to: %s", outputFile))
+
+	
+	return nil
+}
+
+// parsePostgresArray parses PostgreSQL array format like [1.0,2.0,3.0] to []float64
+func parsePostgresArray(arrayStr string, result *[]float64) error {
+	// Remove brackets and split by commas
+	if !strings.HasPrefix(arrayStr, "[") || !strings.HasSuffix(arrayStr, "]") {
+		return fmt.Errorf("invalid array format: %s", arrayStr)
+
+	
+	content := strings.TrimPrefix(strings.TrimSuffix(arrayStr, "]"), "[")
+	if content == "" {
+		*result = []float64{}
+		return nil
+
+	
+	parts := strings.Split(content, ",")
+
+	
+	for i, part := range parts {
+		var val float64
+		if _, err := fmt.Sscanf(strings.TrimSpace(part), "%f", &val); err != nil {
+			return fmt.Errorf("failed to parse float: %s", part)
+		}
+		(*result)[i] = val
+
+	
+	return nil
+}
+
+// generateImportScript creates a SQL script for reimporting to pgvector
+func generateImportScript(embeddings []EmbeddingData) string {
+	if len(embeddings) == 0 {
+		return ""
+	}
+
+
+	
+	script.WriteString("-- LocalCloud Vector Database Import Script\n")
+	script.WriteString("-- Generated on: " + time.Now().Format("2006-01-02 15:04:05") + "\n\n")
+	script.WriteString("-- Create embeddings table if it doesn't exist\n")
+	script.WriteString("CREATE EXTENSION IF NOT EXISTS vector;\n")
+
+	
+	// Determine dimension from first embedding
+
+	
+	script.WriteString(fmt.Sprintf(`CREATE TABLE IF NOT EXISTS localcloud.embeddings (
+    id SERIAL PRIMARY KEY,
+    document_id VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    embedding vector(%d),
+    metadata JSONB,
+    collection_name VARCHAR(100) DEFAULT 'default',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Insert embeddings data
+`, dimension))
+
+	for _, emb := range embeddings {
+		// Convert embedding to PostgreSQL array format
+		var embeddingStr strings.Builder
+		embeddingStr.WriteString("[")
+		for i, val := range emb.Embedding {
+			if i > 0 {
+				embeddingStr.WriteString(",")
+			}
+			embeddingStr.WriteString(fmt.Sprintf("%.6f", val))
+		}
+		embeddingStr.WriteString("]")
+
+		// Convert metadata to JSON
+		metadataJSON := "NULL"
+		if emb.Metadata != nil {
+			if jsonBytes, err := json.Marshal(emb.Metadata); err == nil {
+				metadataJSON = "'" + strings.Replace(string(jsonBytes), "'", "''", -1) + "'"
+			}
+		}
+
+		script.WriteString(fmt.Sprintf("INSERT INTO localcloud.embeddings (document_id, content, embedding, metadata, collection_name, created_at) VALUES ('%s', '%s', '%s', %s, '%s', '%s');\n",
+			strings.Replace(emb.DocumentID, "'", "''", -1),
+			strings.Replace(emb.Content, "'", "''", -1),
+			embeddingStr.String(),
+			metadataJSON,
+			strings.Replace(emb.Collection, "'", "''", -1),
+			emb.CreatedAt.Format("2006-01-02 15:04:05"),
+		))
+	}
+
+	return script.String()
 }

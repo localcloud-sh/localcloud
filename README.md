@@ -467,6 +467,7 @@ We're excited about the future of local-first AI development! Here are some idea
 - **Team Collaboration** - Share projects and sync configurations across teams
 - **Performance Optimization** - GPU acceleration and model quantization
 - **Enterprise Features** - SSO, audit logs, and compliance tools
+- **Project Isolation** - Currently, multiple projects share the same Docker containers (e.g., localcloud-mongodb, localcloud-postgres). Future releases will implement project-based container naming for complete isolation between projects
 
 ### 🤔 **Community Ideas**
 - **Plugin System** - Extend LocalCloud with custom services

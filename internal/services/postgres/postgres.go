@@ -101,7 +101,7 @@ func (s *Service) generateConnectionString() string {
 	host := "localhost"
 	port := s.config.Port
 	user := "localcloud"
-	password := "localcloud-dev"
+	password := "localcloud"
 	dbname := "localcloud"
 
 	// In Docker network, use service name as host

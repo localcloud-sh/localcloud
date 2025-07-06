@@ -17,7 +17,7 @@ source "$LIB_DIR/health-monitor.sh"
 source "$LIB_DIR/reporter.sh"
 
 # Default values
-COMPONENTS_TO_TEST="database,vector,mongodb,cache,queue,storage,embedding,llm"
+COMPONENTS_TO_TEST="database,vector,mongodb,cache,queue,storage,embedding,llm,tunnel,export"
 PARALLEL_JOBS=1
 TIMEOUT=600
 OUTPUT_FORMAT="console"
@@ -38,14 +38,17 @@ fi
 
 # Available components
 AVAILABLE_COMPONENTS=(
-    "database"      # PostgreSQL
-    "vector"        # pgvector
-    "mongodb"       # MongoDB
-    "cache"         # Redis cache
-    "queue"         # Redis queue
-    "storage"       # MinIO
-    "embedding"     # AI embeddings
-    "llm"           # Large language models
+    "database"           # PostgreSQL
+    "vector"             # pgvector
+    "mongodb"            # MongoDB
+    "cache"              # Redis cache
+    "queue"              # Redis queue
+    "storage"            # MinIO
+    "embedding"          # AI embeddings
+    "llm"                # Large language models
+    "tunnel"             # Tunnel connectivity
+    "export"             # Export functionality (basic)
+    "export-integration" # Export with running services
 )
 
 show_help() {
@@ -66,14 +69,17 @@ Options:
     -h, --help              Show this help
 
 Components:
-    database    - PostgreSQL database
-    vector      - pgvector extension
-    mongodb     - MongoDB document database
-    cache       - Redis cache
-    queue       - Redis job queue
-    storage     - MinIO object storage
-    embedding   - AI text embeddings
-    llm         - Large language models
+    database           - PostgreSQL database
+    vector             - pgvector extension
+    mongodb            - MongoDB document database
+    cache              - Redis cache
+    queue              - Redis job queue
+    storage            - MinIO object storage
+    embedding          - AI text embeddings
+    llm                - Large language models
+    tunnel             - Tunnel connectivity (requires internet)
+    export             - Export functionality (basic CLI tests)
+    export-integration - Export with running services (comprehensive)
 
 Examples:
     $0                                    # Test all components
@@ -477,11 +483,15 @@ cleanup_and_exit() {
     # Emergency process cleanup - kill any hanging LocalCloud processes
     log_debug "Performing emergency process cleanup..."
     
-    # Kill LocalCloud CLI processes
+    # Kill specific LocalCloud CLI processes (avoid killing tunnel processes)
     pkill -f "lc component" &>/dev/null || true
-    pkill -f "lc start" &>/dev/null || true  
-    pkill -f "lc stop" &>/dev/null || true
     pkill -f "lc setup" &>/dev/null || true
+    
+    # Kill service management processes but not tunnel processes
+    pgrep -f "lc start" | grep -v "lc tunnel start" | xargs -r kill &>/dev/null || true
+    pgrep -f "lc stop" | grep -v "lc tunnel" | xargs -r kill &>/dev/null || true
+    
+    # Note: lc tunnel processes are handled by individual tests for proper cleanup
     
     # Kill any expect processes that might be hanging
     pkill -f "expect.*lc" &>/dev/null || true
@@ -489,9 +499,12 @@ cleanup_and_exit() {
     # Give processes time to terminate gracefully
     sleep 1
     
-    # Force kill if still running
+    # Force kill if still running (avoid tunnel processes)
     pkill -9 -f "lc component" &>/dev/null || true
     pkill -9 -f "expect.*lc" &>/dev/null || true
+    
+    # Force kill non-tunnel lc processes
+    pgrep -f "lc start" | grep -v "lc tunnel start" | xargs -r kill -9 &>/dev/null || true
     
     case "$signal" in
         "INT")

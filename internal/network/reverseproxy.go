@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -52,9 +53,12 @@ func NewMultiTunnelProxy(prefix string) *MultiTunnelProxy {
 	// Generate unique tunnel ID
 	tunnelID := generateTunnelID()
 
+	// Find available port starting from 8080
+	proxyPort := findAvailablePort(8080)
+
 	return &MultiTunnelProxy{
 		services:  make(map[string]*ServiceConfig),
-		proxyPort: 8080, // Default proxy port
+		proxyPort: proxyPort,
 		tunnelID:  tunnelID,
 		prefix:    prefix,
 	}
@@ -88,30 +92,23 @@ func (mtp *MultiTunnelProxy) GetServiceURLs(baseTunnelURL string) map[string]str
 
 	urls := make(map[string]string)
 
-	// Parse the base tunnel URL to get the base domain
-	baseURL, err := url.Parse(baseTunnelURL)
-	if err != nil {
-		return urls
-	}
-
-	// Create service-specific URLs
+	// Create service-specific URLs using path-based routing
+	// Cloudflare quick tunnels only support path-based routing, not subdomain routing
 	for name, service := range mtp.services {
-		// For Cloudflare tunnels, we can use subdomain-style URLs
-		// Format: service-tunnelid.trycloudflare.com
-		host := baseURL.Host
-
-		// Extract the tunnel ID from the base URL
-		if strings.Contains(host, ".trycloudflare.com") {
-			parts := strings.Split(host, ".")
-			if len(parts) >= 3 {
-				// Create service-specific subdomain
-				serviceHost := fmt.Sprintf("%s-%s.%s.%s", service.Subdomain, mtp.tunnelID, parts[1], parts[2])
-				urls[name] = fmt.Sprintf("https://%s", serviceHost)
-			}
-		} else {
-			// Fallback to path-based routing for other providers
-			urls[name] = fmt.Sprintf("%s%s", baseTunnelURL, service.Path)
+		// Use path-based routing for all tunnel providers
+		servicePath := service.Path
+		if servicePath == "" {
+			servicePath = fmt.Sprintf("/%s", name)
 		}
+
+		// Ensure path starts with /
+		if !strings.HasPrefix(servicePath, "/") {
+			servicePath = "/" + servicePath
+		}
+
+		// Remove trailing slash from base URL and combine with service path
+		baseURLClean := strings.TrimSuffix(baseTunnelURL, "/")
+		urls[name] = fmt.Sprintf("%s%s", baseURLClean, servicePath)
 	}
 
 	return urls
@@ -365,6 +362,19 @@ func generateTunnelID() string {
 	bytes := make([]byte, 4)
 	rand.Read(bytes)
 	return hex.EncodeToString(bytes)
+}
+
+// findAvailablePort finds an available port starting from the given port
+func findAvailablePort(startPort int) int {
+	for port := startPort; port <= startPort+100; port++ {
+		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err == nil {
+			ln.Close()
+			return port
+		}
+	}
+	// Fallback to original port if nothing found
+	return startPort
 }
 
 // DetectRunningServices checks which services are actually running

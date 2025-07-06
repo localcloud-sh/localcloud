@@ -259,18 +259,76 @@ func init() {
 // Helper functions
 
 func getStorageCredentials() (*StorageCredentials, error) {
+	// First try project-local storage credentials (JSON format)
 	credsPath := filepath.Join(".localcloud", "storage-credentials.json")
-	data, err := os.ReadFile(credsPath)
+	if data, err := os.ReadFile(credsPath); err == nil {
+		var creds StorageCredentials
+		if err := json.Unmarshal(data, &creds); err == nil {
+			return &creds, nil
+		}
+	}
+
+	// Fallback to user home MinIO credentials (text format)
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot determine home directory: %w", err)
 	}
 
-	var creds StorageCredentials
-	if err := json.Unmarshal(data, &creds); err != nil {
-		return nil, err
+	minioCredsPath := filepath.Join(homeDir, ".localcloud", "minio-credentials")
+	data, err := os.ReadFile(minioCredsPath)
+	if err != nil {
+		return nil, fmt.Errorf("MinIO credentials not found. Start MinIO service first with 'lc start'")
 	}
 
-	return &creds, nil
+	// Parse the text format credentials
+	content := string(data)
+	creds := &StorageCredentials{
+		UseSSL: false, // Default to false for local development
+	}
+
+	// Extract endpoint
+	if endpoint := extractCredentialValue(content, "Endpoint:"); endpoint != "" {
+		creds.Endpoint = endpoint
+	} else {
+		creds.Endpoint = "http://localhost:9000" // Default
+	}
+
+	// Extract access key
+	if accessKey := extractCredentialValue(content, "Access Key:"); accessKey != "" {
+		creds.AccessKey = accessKey
+	} else {
+		return nil, fmt.Errorf("access key not found in credentials file")
+	}
+
+	// Extract secret key
+	if secretKey := extractCredentialValue(content, "Secret Key:"); secretKey != "" {
+		creds.SecretKey = secretKey
+	} else {
+		return nil, fmt.Errorf("secret key not found in credentials file")
+	}
+
+	// Extract console URL
+	if console := extractCredentialValue(content, "Console:"); console != "" {
+		creds.ConsoleURL = console
+	} else {
+		creds.ConsoleURL = "http://localhost:9001" // Default
+	}
+
+	return creds, nil
+}
+
+// extractCredentialValue extracts a value from a line like "Key: value"
+func extractCredentialValue(content, key string) string {
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), key) {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				return strings.TrimSpace(parts[1])
+			}
+		}
+	}
+	return ""
 }
 
 func getMinIOClient() (*minio.Client, error) {
