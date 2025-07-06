@@ -64,38 +64,13 @@ jobs:
           event-type: update-formula
           client-payload: '{"version": "${{ github.ref_name }}"}'
 
-  update-website:
-    needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout website repository
-        uses: actions/checkout@v4
-        with:
-          repository: localcloud-sh/localcloud-website
-          token: ${{ secrets.GITHUB_TOKEN }}
-          path: website
-      
-      - name: Update version references
-        run: |
-          cd website
-          VERSION="${{ github.ref_name }}"
-          echo "Checking for version references to update to $VERSION"
-          
-          # The PowerShell script auto-detects latest version, so no changes needed
-          # Future: Could update any hardcoded version references in HTML/docs
-          echo "All scripts use dynamic version detection - no updates needed"
-      
-      - name: Commit and push website updates
-        run: |
-          cd website
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          
-          # Only commit if there are changes
-          if ! git diff --quiet; then
-            git add .
-            git commit -m "Auto-update for release ${{ github.ref_name }}"
-            git push
-          else
-            echo "No website changes to commit"
-          fi
+  # Website update job disabled - the website repository may not exist or have different access
+  # The PowerShell script auto-detects the latest version, so no website updates needed
+  # update-website:
+  #   needs: release  
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Log release completion
+  #       run: |
+  #         echo "Release ${{ github.ref_name }} completed successfully"
+  #         echo "Website PowerShell script will auto-detect new version"
