@@ -8,7 +8,7 @@
 [![GitHub release](https://img.shields.io/github/v/release/localcloud-sh/localcloud?color=success)](https://github.com/localcloud-sh/localcloud/releases)
 [![GitHub issues](https://img.shields.io/github/issues/localcloud-sh/localcloud)](https://github.com/localcloud-sh/localcloud/issues)
 [![GitHub stars](https://img.shields.io/github/stars/localcloud-sh/localcloud?style=social)](https://github.com/localcloud-sh/localcloud/stargazers)
-[![Platform Support](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](README.md#installation)
+[![Platform Support](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](README.md#-installation)
 [![AI Assistant Ready](https://img.shields.io/badge/AI%20Assistant-Ready-9cf?logo=openai)](README.md#🤖-ai-assistant-integration-guide)
 [![Test Suite](https://img.shields.io/badge/Tests-10%20Components-green)](test-components/README.md)
 
@@ -32,47 +32,45 @@
 
 ## 🚦 Quick Start
 
-### Installation
+### 📦 Installation
 
-**Quick Install (macOS & Linux):**
+Choose your platform for one-command installation:
+
+#### **macOS & Linux**
 ```bash
 curl -fsSL https://localcloud.sh/install | bash
 ```
 
-**Or via Homebrew:**
+#### **Windows (PowerShell)**
+```powershell
+iwr -useb https://localcloud.sh/install.ps1 | iex
+```
+
+#### **Package Managers**
 ```bash
+# Homebrew (macOS/Linux)
 brew install localcloud-sh/tap/localcloud
+
+# Coming Soon
+# winget install localcloud        # Windows
+# choco install localcloud         # Chocolatey
+# scoop install localcloud         # Scoop
 ```
 
 <details>
-<summary>Manual Installation & Windows</summary>
+<summary>📋 Alternative Installation Methods</summary>
 
-**macOS Manual:**
+**Manual Download:**
+1. Download latest release from [GitHub Releases](https://github.com/localcloud-sh/localcloud/releases)
+2. Extract the archive for your platform
+3. Move binary to PATH directory
+
+**Development Build:**
 ```bash
-# Apple Silicon
-curl -L https://localcloud.sh/releases/darwin-arm64 | tar xz
-sudo install -m 755 localcloud-darwin-arm64 /usr/local/bin/localcloud
-
-# Intel
-curl -L https://localcloud.sh/releases/darwin-amd64 | tar xz
-sudo install -m 755 localcloud-darwin-amd64 /usr/local/bin/localcloud
+git clone https://github.com/localcloud-sh/localcloud
+cd localcloud
+go build -o localcloud ./cmd/localcloud
 ```
-
-**Linux Manual:**
-```bash
-# AMD64
-curl -L https://localcloud.sh/releases/linux-amd64 | tar xz
-sudo install -m 755 localcloud-linux-amd64 /usr/local/bin/localcloud
-
-# ARM64
-curl -L https://localcloud.sh/releases/linux-arm64 | tar xz
-sudo install -m 755 localcloud-linux-arm64 /usr/local/bin/localcloud
-```
-
-**Windows (Experimental):**
-1. Download from [GitHub Releases](https://github.com/localcloud-sh/localcloud/releases)
-2. Extract and add to PATH
-3. Use WSL2 for best compatibility
 
 </details>
 
