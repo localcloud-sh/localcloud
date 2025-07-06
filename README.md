@@ -43,7 +43,7 @@ curl -fsSL https://localcloud.sh/install | bash
 
 #### **Windows (PowerShell)**
 ```powershell
-iwr -useb https://raw.githubusercontent.com/localcloud-sh/localcloud/main/install.ps1 | iex
+iwr -useb https://localcloud.sh/install.ps1 | iex
 ```
 
 #### **Package Managers**

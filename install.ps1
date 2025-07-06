@@ -1,5 +1,5 @@
 # LocalCloud Windows PowerShell Installer
-# Usage: iwr -useb https://raw.githubusercontent.com/localcloud-sh/localcloud/main/install.ps1 | iex
+# Usage: iwr -useb https://localcloud.sh/install.ps1 | iex
 
 param(
     [string]$Version = "latest",
