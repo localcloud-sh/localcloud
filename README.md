@@ -302,37 +302,6 @@ lc status
 lc logs [service]
 ```
 
-### Service Management
-```bash
-# Start specific service
-lc service start postgres
-lc service start whisper
-
-# Stop specific service
-lc service stop postgres
-
-# Restart service
-lc service restart ai
-
-# Get service URL
-lc service url postgres
-```
-
-### Database Commands
-```bash
-# Connect to database
-lc db connect
-
-# Backup database
-lc db backup
-
-# Restore from backup
-lc db restore backup-file.sql
-
-# Run migrations
-lc db migrate
-```
-
 ### Model Management
 ```bash
 # List available models
