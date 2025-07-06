@@ -263,13 +263,13 @@ LocalCloud Project Structure:
 
 ## 🛠️ System Requirements
 
-- **OS**: macOS, Linux, Windows (WSL2)
+- **OS**: macOS, Linux, Windows 10/11
 - **RAM**: 4GB minimum (8GB recommended)
 - **Disk**: 10GB free space
 - **Docker**: Docker Desktop or Docker Engine
 - **CPU**: x64 or ARM64 processor
 
-> **Note**: LocalCloud is written in Go for performance, but you don't need Go installed. The CLI is a single binary that works everywhere.
+> **Note**: LocalCloud is written in Go for performance, but you don't need Go installed. The CLI is a single binary that works everywhere. Windows users can install via PowerShell - no WSL required.
 
 ## 🎮 Command Reference
 
