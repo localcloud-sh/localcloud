@@ -18,9 +18,9 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/localcloud-sh/loca
 	"github.com/localcloud-sh/localcloud/internal/config"
-	"github.com/localcloud-sh/localcloud/internal/services/postgres"
-	"github.com/minio/minio-go/v7"
 	_ "github.com/lib/pq"
+	"github.com/minio/minio-go/v7"
+	"github.com/spf13/cobra"
 )
 
 var exportCmd = &cobra.Command{
@@ -188,7 +188,11 @@ var (
 )
 
 func init() {
-	// Add flags
+	// Add global output flag to all export commands
+	exportAllCmd.Flags().StringVar(&exportOutput, "output", "", "Output directory or file path")
+	exportDBCmd.Flags().StringVar(&exportOutput, "output", "", "Output directory or file path")
+	exportMongoCmd.Flags().StringVar(&exportOutput, "output", "", "Output directory or file path")
+	exportStorageCmd.Flags().StringVar(&exportOutput, "output", "", "Output directory or file path")
 
 	
 	// Vector-specific flags
@@ -497,10 +501,10 @@ func runExportVector(cmd *cobra.Command, args []string) error {
 }
 
 // VectorExportData represents the structure for vector database export
+type VectorExportData struct {
 	ExportInfo   ExportInfo      `json:"export_info"`
 	Collections  []string        `json:"collections"`
 	Embeddings   []EmbeddingData `json:"embeddings"`
-	Embeddings   []EmbeddingData  `json:"embeddings"`
 	ImportScript string          `json:"import_script,omitempty"`
 }
 
@@ -512,6 +516,7 @@ type ExportInfo struct {
 	Dimension    int       `json:"dimension"`
 }
 
+type EmbeddingData struct {
 	ID         string                 `json:"id"`
 	DocumentID string                 `json:"document_id"`
 	Content    string                 `json:"content"`
@@ -519,7 +524,6 @@ type ExportInfo struct {
 	Metadata   map[string]interface{} `json:"metadata,omitempty"`
 	Collection string                 `json:"collection"`
 	CreatedAt  time.Time              `json:"created_at"`
-	CreatedAt    time.Time              `json:"created_at"`
 }
 
 func exportVectorDatabase(cfg *config.Config) error {
@@ -576,8 +580,8 @@ func exportVectorDatabase(cfg *config.Config) error {
 		var metadataStr sql.NullString
 
 		err := rows.Scan(
+			&embedding.ID,
 			&embedding.DocumentID,
-			&embedding.DocumentID, 
 			&embedding.Content,
 			&embeddingStr,
 			&metadataStr,
@@ -628,9 +632,9 @@ func exportVectorDatabase(cfg *config.Config) error {
 			Version:      "1.0",
 			TotalVectors: len(embeddings),
 			Dimension:    dimension,
+		},
 		Collections:  collectionList,
 		Embeddings:   embeddings,
-		Embeddings:  embeddings,
 		ImportScript: generateImportScript(embeddings),
 	}
 
@@ -648,7 +652,6 @@ func exportVectorDatabase(cfg *config.Config) error {
 	}
 
 	printSuccess(fmt.Sprintf("Vector database exported to: %s", outputFile))
-
 	
 	return nil
 }
@@ -693,7 +696,6 @@ func generateImportScript(embeddings []EmbeddingData) string {
 	script.WriteString("-- Create embeddings table if it doesn't exist\n")
 	script.WriteString("CREATE EXTENSION IF NOT EXISTS vector;\n")
 
-	
 	// Determine dimension from first embedding
 
 	

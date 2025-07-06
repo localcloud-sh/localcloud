@@ -7,8 +7,6 @@ import (
 )
 
 // Embed template files
-//
-//go:embed templates/*
 var templatesFS embed.FS
 
 func main() {
