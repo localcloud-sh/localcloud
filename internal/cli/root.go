@@ -42,7 +42,7 @@ and compute services entirely on your machine.
 - Built-in export tools for seamless cloud migration
 
 You can use either 'localcloud' or 'lc' to run commands.`,
-	Version: "0.1.0",
+	Version: "0.2.0",
 	Example: `  # Complete AI development setup
   lc setup my-ai-app
   cd my-ai-app
