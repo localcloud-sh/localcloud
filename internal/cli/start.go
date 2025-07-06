@@ -27,12 +27,13 @@ var startCmd = &cobra.Command{
 	Short:     "Start LocalCloud services",
 	Long:      `Start all or specific LocalCloud services for the current project.`,
 	Args:      cobra.MaximumNArgs(1),
-	ValidArgs: []string{"ai", "postgres", "cache", "queue", "minio", "all"},
+	ValidArgs: []string{"ai", "postgres", "database", "cache", "queue", "minio", "storage", "all"},
 	Example: `  lc start           # Start all services
-  lc start ai        # Start only AI service
-  lc start cache     # Start only Cache
-  lc start queue     # Start only Queue
-  lc start --only ai,cache  # Start only AI and Cache`,
+  lc start ai        # Start only AI models (Ollama)
+  lc start postgres  # Start only PostgreSQL database
+  lc start cache     # Start only Redis cache
+  lc start queue     # Start only Redis queue
+  lc start --only ai,cache  # Start only AI and cache services`,
 	RunE: runStart,
 }
 

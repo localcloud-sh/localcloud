@@ -34,12 +34,26 @@ var rootCmd = &cobra.Command{
 eliminates cloud costs during development. Run AI models, databases, storage, 
 and compute services entirely on your machine.
 
+🤖 PERFECT FOR CODE ASSISTANTS (Claude Code, Cursor, Gemini CLI):
+- Zero-cost local development environment
+- One-command setup: 'lc setup my-project'  
+- Instant AI model deployment with Ollama integration
+- Local PostgreSQL, MongoDB, Redis, and MinIO storage
+- Built-in export tools for seamless cloud migration
+
 You can use either 'localcloud' or 'lc' to run commands.`,
 	Version: "0.1.0",
-	Example: `  localcloud setup my-project
+	Example: `  # Complete AI development setup
+  lc setup my-ai-app
+  cd my-ai-app
   lc start
-  lc models list
-  lc status`,
+  lc models pull llama3.2:3b
+  
+  # Check everything is running
+  lc status
+  
+  # When ready for production
+  lc export all --output=./production-backup/`,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

@@ -30,8 +30,16 @@ This command combines project initialization and component configuration:
 - New project: Creates project structure and configures components
 - Existing project: Modifies current component configuration
 - With flags: Add or remove specific components`,
-	Example: `  lc setup                   # Setup in current directory
+	Example: `  # Interactive setup (human users)
+  lc setup                   # Setup in current directory
   lc setup my-project        # Create and setup new project
+  
+  # Non-interactive setup (perfect for code assistants)
+  lc setup my-ai-app --preset=ai-dev --yes
+  lc setup --components=llm,database --models=llama3.2:3b --yes
+  lc setup my-app --components=database,cache,storage --yes
+  
+  # Modify existing projects
   lc setup --add llm         # Add component to existing project
   lc setup --remove cache    # Remove component from project`,
 	Args: cobra.MaximumNArgs(1),
@@ -39,21 +47,40 @@ This command combines project initialization and component configuration:
 }
 
 var (
-	setupAdd    []string
-	setupRemove []string
+	setupAdd        []string
+	setupRemove     []string
+	setupComponents []string
+	setupModels     []string
+	setupPreset     string
+	setupYes        bool
 )
 
 func init() {
 	setupCmd.Flags().StringSliceVar(&setupAdd, "add", []string{}, "Components to add")
 	setupCmd.Flags().StringSliceVar(&setupRemove, "remove", []string{}, "Components to remove")
+
+	// Non-interactive flags for code assistants
+	setupCmd.Flags().StringSliceVar(&setupComponents, "components", []string{}, "Components to configure (llm,database,cache,storage,etc)")
+	setupCmd.Flags().StringSliceVar(&setupModels, "models", []string{}, "AI models to download (llama3.2:3b,nomic-embed-text)")
+	setupCmd.Flags().StringVar(&setupPreset, "preset", "", "Preset configuration (ai-dev,full-stack,minimal)")
+	setupCmd.Flags().BoolVarP(&setupYes, "yes", "y", false, "Accept all defaults (non-interactive mode)")
 }
 
 func runSetup(cmd *cobra.Command, args []string) error {
+	// Check if non-interactive mode is requested
+	isNonInteractive := setupYes || len(setupComponents) > 0 || len(setupModels) > 0 || setupPreset != ""
+
 	if len(args) > 0 {
 		// New project setup
+		if isNonInteractive {
+			return runNonInteractiveSetup(cmd, args[0])
+		}
 		return runNewProjectSetup(cmd, args[0])
 	} else {
 		// Existing project setup
+		if isNonInteractive {
+			return runNonInteractiveSetup(cmd, ".")
+		}
 		return runExistingProjectSetup(cmd)
 	}
 }
@@ -530,8 +557,22 @@ func initializeProject(projectName, projectDir string, createDir bool) error {
 		}
 	}
 
+	// Create CLAUDE.md for code assistants
+	claudeFile := filepath.Join(projectDir, "CLAUDE.md")
+	if _, err := os.Stat(claudeFile); os.IsNotExist(err) {
+		claudeContent := generateClaudeContent(projectName)
+		if err := os.WriteFile(claudeFile, []byte(claudeContent), 0644); err != nil {
+			return fmt.Errorf("failed to create CLAUDE.md: %w", err)
+		}
+	}
+
 	fmt.Printf("%s Initialized LocalCloud project structure\n", successColor("✓"))
 	return nil
+}
+
+// generateClaudeContent creates CLAUDE.md content for code assistants
+func generateClaudeContent(projectName string) string {
+	return fmt.Sprintf("# %s - LocalCloud Project\n\n## 🤖 AI Assistant Guide\n\nThis is a LocalCloud project for local AI development. LocalCloud eliminates cloud costs during development by running everything locally.\n\n## Available Commands\n\n### Core Commands\n- **`lc start`** - Start all configured services\n- **`lc status`** - Check service status and connection info\n- **`lc stop`** - Stop all services\n- **`lc restart`** - Restart services\n\n### AI Models\n- **`lc models list`** - List available models\n- **`lc models pull llama3.2:3b`** - Download AI models\n- **`lc models remove <model>`** - Remove models\n\n### Data Export (for production)\n- **`lc export all`** - Export all data for cloud migration\n- **`lc export db`** - Export PostgreSQL database\n- **`lc export storage`** - Export MinIO storage\n- **`lc export mongo`** - Export MongoDB (if configured)\n\n### Project Management\n- **`lc setup`** - Configure project components\n- **`lc info`** - Show project and system information\n- **`lc doctor`** - Check system requirements\n\n## Typical Development Workflow\n\n1. **Start services**: `lc start`\n2. **Download AI model**: `lc models pull llama3.2:3b`\n3. **Check status**: `lc status` (shows connection endpoints)\n4. **Develop your application** using the local services\n5. **Export for production**: `lc export all --output=./production-backup/`\n\n## Project Configuration\n\nRun `lc status` to see which services are configured and their connection details.\nCommon services include:\n- **PostgreSQL** (local database)\n- **AI Models** via Ollama\n- **MinIO** (S3-compatible storage)\n- **Redis** (caching)\n- **MongoDB** (document database)\n\n## Notes for AI Assistants\n\n- This project uses LocalCloud for local development\n- All services run locally (no cloud costs during development)\n- Use `lc export` commands when ready to migrate to production\n- Connection details are shown in `lc status` output\n- Always start services with `lc start` before development\n", projectName)
 }
 
 // Helper functions - only add functions not already defined elsewhere
@@ -799,4 +840,162 @@ func updateCompleteConfig(cfg *config.Config, componentIDs []string) {
 			}
 		}
 	}
+}
+
+// runNonInteractiveSetup handles setup without user interaction for code assistants
+func runNonInteractiveSetup(cmd *cobra.Command, projectName string) error {
+	var projectDir string
+	var err error
+
+	if projectName != "." {
+		// New project setup
+		projectDir, err = filepath.Abs(projectName)
+		if err != nil {
+			return fmt.Errorf("invalid project path: %w", err)
+		}
+
+		// Check if directory already exists
+		if _, err := os.Stat(projectDir); !os.IsNotExist(err) {
+			return fmt.Errorf("project directory '%s' already exists", projectName)
+		}
+
+		// Create project directory
+		if err := os.MkdirAll(projectDir, 0755); err != nil {
+			return fmt.Errorf("failed to create project directory: %w", err)
+		}
+
+		// Change to project directory
+		originalDir, _ := os.Getwd()
+		if err := os.Chdir(projectDir); err != nil {
+			return fmt.Errorf("failed to change directory: %w", err)
+		}
+		defer os.Chdir(originalDir)
+
+		fmt.Printf("%s Created project directory: %s\n", successColor("✓"), projectName)
+	} else {
+		projectDir = "."
+		projectName = filepath.Base(projectDir)
+	}
+
+	// Initialize project structure first (creates empty config.yaml)
+	if err := initializeProject(projectName, ".", projectName != "."); err != nil {
+		return err
+	}
+
+	// Initialize config from the created file
+	if err := config.Init(""); err != nil {
+		return fmt.Errorf("failed to initialize config: %w", err)
+	}
+
+	// Get config and set project name
+	cfg := config.Get()
+	cfg.Project.Name = projectName
+
+	// Handle preset configurations
+	if setupPreset != "" {
+		if err := applyPreset(cfg, setupPreset); err != nil {
+			return fmt.Errorf("failed to apply preset: %w", err)
+		}
+		fmt.Printf("%s Applied preset: %s\n", successColor("✓"), setupPreset)
+	}
+
+	// Handle specific components
+	if len(setupComponents) > 0 {
+		if err := configureComponents(cfg, setupComponents); err != nil {
+			return fmt.Errorf("failed to configure components: %w", err)
+		}
+		fmt.Printf("%s Configured components: %s\n", successColor("✓"), strings.Join(setupComponents, ", "))
+	}
+
+	// Handle specific models
+	if len(setupModels) > 0 {
+		cfg.Services.AI.Models = setupModels
+		if cfg.Services.AI.Default == "" && len(setupModels) > 0 {
+			cfg.Services.AI.Default = setupModels[0]
+		}
+		fmt.Printf("%s Configured models: %s\n", successColor("✓"), strings.Join(setupModels, ", "))
+	}
+
+	// Save configuration
+	if err := config.Save(); err != nil {
+		return fmt.Errorf("failed to save configuration: %w", err)
+	}
+
+	fmt.Printf("\n%s LocalCloud project setup completed!\n", successColor("✓"))
+	fmt.Printf("Next steps:\n")
+	fmt.Printf("  %s lc start              # Start all services\n", infoColor("→"))
+	if len(setupModels) > 0 {
+		fmt.Printf("  %s Models will be downloaded on first start\n", infoColor("→"))
+	}
+	fmt.Printf("  %s lc status             # Check service status\n", infoColor("→"))
+
+	return nil
+}
+
+// applyPreset applies a preset configuration
+func applyPreset(cfg *config.Config, preset string) error {
+	switch preset {
+	case "ai-dev":
+		return configureComponents(cfg, []string{"llm", "embedding", "database", "vector"})
+	case "full-stack":
+		return configureComponents(cfg, []string{"llm", "embedding", "database", "vector", "cache", "queue", "storage"})
+	case "minimal":
+		return configureComponents(cfg, []string{"llm"})
+	default:
+		return fmt.Errorf("unknown preset: %s. Available presets: ai-dev, full-stack, minimal", preset)
+	}
+}
+
+// configureComponents configures the specified components
+func configureComponents(cfg *config.Config, componentList []string) error {
+	for _, comp := range componentList {
+		switch comp {
+		case "llm", "embedding":
+			if cfg.Services.AI.Port == 0 {
+				cfg.Services.AI.Port = 11434
+			}
+		case "database":
+			cfg.Services.Database = config.DatabaseConfig{
+				Type:    "postgres",
+				Version: "16",
+				Port:    5432,
+			}
+		case "vector":
+			// Ensure database is configured first
+			if cfg.Services.Database.Type == "" {
+				cfg.Services.Database = config.DatabaseConfig{
+					Type:    "postgres",
+					Version: "16",
+					Port:    5432,
+				}
+			}
+			cfg.Services.Database.Extensions = append(cfg.Services.Database.Extensions, "pgvector")
+		case "cache":
+			cfg.Services.Cache = config.CacheConfig{
+				Type: "redis",
+				Port: 6379,
+			}
+		case "queue":
+			cfg.Services.Queue = config.QueueConfig{
+				Type: "redis",
+				Port: 6380,
+			}
+		case "storage":
+			cfg.Services.Storage = config.StorageConfig{
+				Type:    "minio",
+				Port:    9000,
+				Console: 9001,
+			}
+		case "mongodb":
+			cfg.Services.MongoDB = config.MongoDBConfig{
+				Type:        "mongodb",
+				Version:     "7",
+				Port:        27017,
+				AuthEnabled: true,
+			}
+		default:
+			return fmt.Errorf("unknown component: %s. Available: llm, embedding, database, vector, cache, queue, storage, mongodb", comp)
+		}
+	}
+	return nil
 }

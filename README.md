@@ -9,11 +9,12 @@
 [![GitHub issues](https://img.shields.io/github/issues/localcloud-sh/localcloud)](https://github.com/localcloud-sh/localcloud/issues)
 [![GitHub stars](https://img.shields.io/github/stars/localcloud-sh/localcloud?style=social)](https://github.com/localcloud-sh/localcloud/stargazers)
 [![Platform Support](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](README.md#installation)
+[![AI Assistant Ready](https://img.shields.io/badge/AI%20Assistant-Ready-9cf?logo=openai)](README.md#🤖-ai-assistant-integration-guide)
 [![Test Suite](https://img.shields.io/badge/Tests-8%20Components-green)](test-components/README.md)
 
 </div>
 
-**From idea to running code in minutes, not weeks.** LocalCloud delivers production databases, AI models, and storage instantly. No DevOps, no cloud bills, no infrastructure drama.
+**From idea to running code in minutes, not weeks.** LocalCloud delivers developer-friendly PostgreSQL, MongoDB, vector databases, AI models, Redis cache, job queues, and S3-like storage instantly. No DevOps, no cloud bills, no infrastructure drama.
 
 ## 🚀 **Why Developers Choose LocalCloud**
 
@@ -25,93 +26,60 @@
 - 🤝 **Remote Teams** - Share running environments with frontend developers without deployment hassles
 - 🧪 **Testing Pipelines** - Integrate AI and databases in CI without external dependencies
 - 🔧 **Prototype Speed** - Spin up full-stack environments faster than booting a VM
-
-> **New in latest version**: Simplified setup! Now just use `lc setup` to create and configure projects in one command.
+- 🤖 **AI Assistant Users** - Works seamlessly with Claude Code, Cursor, Gemini CLI for AI-powered development
 
 ## 🚦 Quick Start
 
 ### Installation
 
-#### macOS
-
-**Homebrew (Recommended)**:
-```bash
-brew install localcloud-sh/tap/localcloud
-```
-
-**Manual Installation**:
-
-Apple Silicon:
-```bash
-curl -L https://localcloud.sh/releases/darwin-arm64 | tar xz
-sudo install -m 755 localcloud-darwin-arm64 /usr/local/bin/localcloud
-sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
-```
-
-Intel:
-```bash
-curl -L https://localcloud.sh/releases/darwin-amd64 | tar xz
-sudo install -m 755 localcloud-darwin-amd64 /usr/local/bin/localcloud
-sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
-```
-
-#### Linux
-
-**Homebrew (if installed)**:
-```bash
-brew install localcloud-sh/tap/localcloud
-```
-
-**Manual Installation**:
-
-<details>
-<summary>Show installation commands</summary>
-
-AMD64:
-```bash
-curl -L https://localcloud.sh/releases/linux-amd64 | tar xz
-sudo install -m 755 localcloud-linux-amd64 /usr/local/bin/localcloud
-sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
-```
-
-ARM64:
-```bash
-curl -L https://localcloud.sh/releases/linux-arm64 | tar xz
-sudo install -m 755 localcloud-linux-arm64 /usr/local/bin/localcloud
-sudo ln -sf /usr/local/bin/localcloud /usr/local/bin/lc
-```
-</details>
-
-#### Windows (Under Testing)
-<details>
-<summary>Show Windows installation (experimental)</summary>
-
-1. Download the latest release from [GitHub Releases](https://github.com/localcloud-sh/localcloud/releases)
-2. Extract `localcloud-windows-amd64.zip`
-3. Add the extracted folder to your system PATH
-4. Restart your terminal
-5. Use `localcloud` or `lc` commands
-
-**Note**: Windows support is experimental. WSL2 is recommended for better compatibility.
-</details>
-
-### Quick Install Script
-
-For macOS and Linux, you can also use our install script:
-
+**Quick Install (macOS & Linux):**
 ```bash
 curl -fsSL https://localcloud.sh/install | bash
 ```
 
-This script will:
-- Detect your OS and architecture
-- Use Homebrew if available (macOS)
-- Download the appropriate binary
-- Install LocalCloud and create the `lc` alias
+**Or via Homebrew:**
+```bash
+brew install localcloud-sh/tap/localcloud
+```
+
+<details>
+<summary>Manual Installation & Windows</summary>
+
+**macOS Manual:**
+```bash
+# Apple Silicon
+curl -L https://localcloud.sh/releases/darwin-arm64 | tar xz
+sudo install -m 755 localcloud-darwin-arm64 /usr/local/bin/localcloud
+
+# Intel
+curl -L https://localcloud.sh/releases/darwin-amd64 | tar xz
+sudo install -m 755 localcloud-darwin-amd64 /usr/local/bin/localcloud
+```
+
+**Linux Manual:**
+```bash
+# AMD64
+curl -L https://localcloud.sh/releases/linux-amd64 | tar xz
+sudo install -m 755 localcloud-linux-amd64 /usr/local/bin/localcloud
+
+# ARM64
+curl -L https://localcloud.sh/releases/linux-arm64 | tar xz
+sudo install -m 755 localcloud-linux-arm64 /usr/local/bin/localcloud
+```
+
+**Windows (Experimental):**
+1. Download from [GitHub Releases](https://github.com/localcloud-sh/localcloud/releases)
+2. Extract and add to PATH
+3. Use WSL2 for best compatibility
+
+</details>
+
 ### Getting Started
 
+#### 👨‍💻 Interactive Setup
+
 ```bash
-# Setup in current directory
+# Setup your project with an interactive wizard
 lc setup
 ```
 
@@ -133,12 +101,26 @@ You'll see an interactive wizard:
   ◯ [Infrastructure] Object Storage (MinIO) - S3-compatible object storage for files and media
 ```
 
+Then start your services:
 ```bash
-# Start all selected services
 lc start
 
-# Your AI services are now running!
+# Your infrastructure is now running!
 # Check status: lc status
+```
+
+#### 🤖 Non-Interactive Setup (AI Assistants)
+
+AI assistants can set up projects with simple commands:
+
+```bash
+# Quick presets for common stacks
+lc setup my-ai-app --preset=ai-dev --yes        # AI + Database + Vector search
+lc setup my-app --preset=full-stack --yes       # Everything included
+lc setup blog --preset=minimal --yes            # Just AI models
+
+# Or specify exact components
+lc setup my-app --components=llm,database,storage --models=llama3.2:3b --yes
 ```
 
 > **Note**: `lc` is the short alias for `localcloud` - use whichever you prefer!
@@ -153,12 +135,22 @@ lc start
 - **🔧 Developer Friendly**: Simple CLI, clear errors, extensible architecture
 - **🐳 Docker-Based**: Consistent environment across all platforms
 - **🌐 Mobile Ready**: Built-in tunnel support for demos anywhere
+- **📤 Export Tools**: One-command migration to any cloud provider
+- **🤖 AI Assistant Ready**: Non-interactive setup perfect for Claude Code, Cursor, Gemini CLI
 
 ## 🎯 Vision
 
 **Make production infrastructure as simple as running a local web server.**
 
 LocalCloud eliminates the complexity and cost of infrastructure setup by providing a complete, local-first development environment. No cloud bills, no data privacy concerns, no complex configurations - just pure development productivity.
+
+## 🤖 AI Assistant Integration
+
+**For AI coding assistants:** Share this repository link to give your AI assistant complete context:
+
+> *"I'm using LocalCloud for local AI development. Please review this repository to understand its capabilities: https://github.com/localcloud-sh/localcloud"*
+
+Your AI assistant will automatically understand all commands and help you build applications using LocalCloud's non-interactive setup options.
 
 ## 💡 Perfect For These Scenarios
 
@@ -190,6 +182,11 @@ No API rate limits. No usage caps. No waiting for credits. Just pure development
 **AI Customer Support Trainer**: Process your support tickets locally to train a custom assistant.  
 **Code Review Bot**: Build a team-specific code reviewer without sending code to external APIs.  
 **Meeting Transcription System**: Record, transcribe, and summarize meetings - all on company hardware.
+
+### 🤖 **AI Assistant Development in One Coffee Sip**
+**"Hey Claude, build me a chatbot backend"** → Your AI assistant runs `lc setup my-chatbot --preset=ai-dev --yes` and in 60 seconds you have PostgreSQL, vector search, AI models, and Redis running locally. Complete with database schema, API endpoints, and a working chat interface. By the time you finish your coffee, you're making API calls to your fully functional backend.
+
+No cloud signup. No credit card. No infrastructure drama. Just pure AI-assisted development velocity.
 
 ## 📚 Available Templates
 
