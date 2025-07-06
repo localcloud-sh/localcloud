@@ -10,7 +10,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/localcloud-sh/localcloud?style=social)](https://github.com/localcloud-sh/localcloud/stargazers)
 [![Platform Support](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](README.md#installation)
 [![AI Assistant Ready](https://img.shields.io/badge/AI%20Assistant-Ready-9cf?logo=openai)](README.md#🤖-ai-assistant-integration-guide)
-[![Test Suite](https://img.shields.io/badge/Tests-8%20Components-green)](test-components/README.md)
+[![Test Suite](https://img.shields.io/badge/Tests-10%20Components-green)](test-components/README.md)
 
 </div>
 
