@@ -118,6 +118,11 @@ try {
     # Copy binary
     Copy-Item $extractedPath $binaryPath -Force
     
+    # Create lc.exe alias
+    $lcPath = Join-Path $InstallDir "lc.exe"
+    Copy-Item $binaryPath $lcPath -Force
+    Write-Info "Created 'lc' shorthand command"
+    
     # Add to PATH if requested
     if ($AddToPath) {
         Write-Info "Adding LocalCloud to PATH..."
@@ -155,15 +160,19 @@ try {
     Write-Success "[SUCCESS] LocalCloud is ready to use!"
     Write-Host ""
     Write-Info "Quick Start (AI Assistant Mode):"
-    Write-Host "  localcloud setup my-ai-app --preset=ai-dev --yes" -ForegroundColor White
+    Write-Host "  lc setup my-ai-app --preset=ai-dev --yes" -ForegroundColor White
     Write-Host "  cd my-ai-app" -ForegroundColor White
-    Write-Host "  localcloud start" -ForegroundColor White
+    Write-Host "  lc start" -ForegroundColor White
     Write-Host ""
     Write-Info "Interactive Setup:"
-    Write-Host "  localcloud setup my-project" -ForegroundColor White
+    Write-Host "  lc setup my-project" -ForegroundColor White
+    Write-Host ""
+    Write-Info "Available Commands:"
+    Write-Host "  localcloud --version  (full command)" -ForegroundColor White
+    Write-Host "  lc --version         (shorthand)" -ForegroundColor White
     Write-Host ""
     Write-Info "Get Help:"
-    Write-Host "  localcloud --help" -ForegroundColor White
+    Write-Host "  lc --help" -ForegroundColor White
     Write-Host "  Documentation: https://docs.localcloud.sh" -ForegroundColor White
     Write-Host ""
     
