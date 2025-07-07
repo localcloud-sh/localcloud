@@ -43,7 +43,11 @@ curl -fsSL https://localcloud.sh/install | bash
 
 #### **Windows (PowerShell)**
 ```powershell
+# Install
 iwr -useb https://localcloud.sh/install.ps1 | iex
+
+# Update/Reinstall
+iwr -useb https://localcloud.sh/install.ps1 | iex -ArgumentList "-Force"
 ```
 
 #### **Package Managers**
