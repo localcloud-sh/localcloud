@@ -1,0 +1,53 @@
+<svg width="1280" height="640" viewBox="0 0 1280 640" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <!-- Gradient background -->
+        <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#0a1628;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#0066ff;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- Text gradient -->
+        <linearGradient id="textGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#00ff88;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#00ccff;stop-opacity:1" />
+        </linearGradient>
+    </defs>
+    
+    <!-- Background -->
+    <rect width="1280" height="640" fill="url(#bgGradient)"/>
+    
+    <!-- Simple grid -->
+    <g opacity="0.1">
+        <line x1="0" y1="320" x2="1280" y2="320" stroke="white" stroke-width="1"/>
+        <line x1="640" y1="0" x2="640" y2="640" stroke="white" stroke-width="1"/>
+    </g>
+    
+    <!-- Terminal icon (simpler, larger) -->
+    <g transform="translate(100, 220)">
+        <rect x="0" y="0" width="320" height="200" rx="15" fill="#000" opacity="0.7"/>
+        <rect x="0" y="0" width="320" height="40" rx="15" fill="#1a1a1a"/>
+        <circle cx="25" cy="20" r="6" fill="#ff5555"/>
+        <circle cx="50" cy="20" r="6" fill="#ffff55"/>
+        <circle cx="75" cy="20" r="6" fill="#55ff55"/>
+        
+        <!-- Big clear text -->
+        <text x="20" y="90" font-family="monospace" font-size="36" font-weight="bold" fill="#00ff00">$ lc start</text>
+        <text x="20" y="140" font-family="monospace" font-size="28" fill="#888">Ready! ✓</text>
+    </g>
+    
+    <!-- Main content - HUGE text -->
+    <g transform="translate(640, 200)">
+        <!-- Title - VERY LARGE -->
+        <text x="0" y="0" font-family="Arial Black, sans-serif" font-size="96" font-weight="900" text-anchor="middle" fill="white">LocalCloud</text>
+        
+        <!-- Tagline - Still readable when small -->
+        <text x="0" y="80" font-family="Arial, sans-serif" font-size="36" text-anchor="middle" fill="#00ccff">Zero Cloud Cost</text>
+        <text x="0" y="130" font-family="Arial, sans-serif" font-size="36" text-anchor="middle" fill="#00ccff">Local AI Development</text>
+        
+        <!-- Simple value prop -->
+        <g transform="translate(-200, 200)">
+            <rect x="0" y="0" width="400" height="70" rx="35" fill="white" opacity="0.1"/>
+            <text x="200" y="45" font-family="Arial, sans-serif" font-size="28" font-weight="bold" text-anchor="middle" fill="white">Ship AI Products Fast</text>
+        </g>
+    </g>
+</svg>

@@ -59,8 +59,20 @@ Write-Info "Install directory: $InstallDir"
 # Check if already installed
 $binaryPath = Join-Path $InstallDir "localcloud.exe"
 if ((Test-Path $binaryPath) -and (-not $Force)) {
-    Write-Warning "LocalCloud is already installed at $binaryPath"
-    Write-Info "Use -Force to reinstall or run: localcloud --version"
+    # Get current version
+    try {
+        $currentVersion = & $binaryPath --version 2>$null
+        Write-Warning "LocalCloud is already installed at $binaryPath"
+        Write-Info "Current version: $currentVersion"
+        Write-Info ""
+        Write-Info "To update to the latest version, run:"
+        Write-Host "  iwr -useb https://localcloud.sh/install.ps1 | iex -ArgumentList `"-Force`"" -ForegroundColor Yellow
+        Write-Info ""
+        Write-Info "Or continue with -Force parameter to reinstall"
+    } catch {
+        Write-Warning "LocalCloud is already installed at $binaryPath"
+        Write-Info "Use -Force to reinstall"
+    }
     exit 0
 }
 

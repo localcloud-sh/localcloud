@@ -56,9 +56,12 @@ iwr -useb https://localcloud.sh/install.ps1 | iex -ArgumentList "-Force"
 brew install localcloud-sh/tap/localcloud
 
 # Coming Soon
-# winget install localcloud        # Windows
+# winget install localcloud        # Windows Package Manager
 # choco install localcloud         # Chocolatey
 # scoop install localcloud         # Scoop
+# apt install localcloud           # Debian/Ubuntu
+# dnf install localcloud           # Fedora
+# pacman -S localcloud             # Arch Linux
 ```
 
 <details>
@@ -274,6 +277,28 @@ LocalCloud Project Structure:
 - **CPU**: x64 or ARM64 processor
 
 > **Note**: LocalCloud is written in Go for performance, but you don't need Go installed. The CLI is a single binary that works everywhere. Windows users can install via PowerShell - no WSL required.
+
+## 🔄 Updating LocalCloud
+
+**Windows:**
+```powershell
+# Check if update is needed (will show current version)
+iwr -useb https://localcloud.sh/install.ps1 | iex
+
+# Force update/reinstall
+iwr -useb https://localcloud.sh/install.ps1 | iex -ArgumentList "-Force"
+```
+
+**macOS/Linux (Homebrew):**
+```bash
+brew upgrade localcloud-sh/tap/localcloud
+```
+
+**Linux (without Homebrew):**
+```bash
+# Re-run install script
+curl -fsSL https://localcloud.sh/install | bash
+```
 
 ## 🎮 Command Reference
 
