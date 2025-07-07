@@ -58,7 +58,7 @@ Write-Info "Install directory: $InstallDir"
 
 # Check if already installed
 $binaryPath = Join-Path $InstallDir "localcloud.exe"
-if (Test-Path $binaryPath -and -not $Force) {
+if ((Test-Path $binaryPath) -and (-not $Force)) {
     Write-Warning "LocalCloud is already installed at $binaryPath"
     Write-Info "Use -Force to reinstall or run: localcloud --version"
     exit 0
