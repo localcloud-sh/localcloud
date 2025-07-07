@@ -33,9 +33,9 @@ Write-Success "╔════════════════════�
 Write-Success "║                          LocalCloud                              ║"
 Write-Success "║              AI Development at Zero Cost                         ║"
 Write-Success "║                                                                  ║"
-Write-Success "║  🤖 Perfect for Claude Code, Cursor, Gemini CLI                 ║"
-Write-Success "║  🌐 Programming Language Agnostic                               ║"
-Write-Success "║  🏠 Local-First Development                                      ║"
+Write-Success "║  Perfect for Claude Code, Cursor, Gemini CLI                    ║"
+Write-Success "║  Programming Language Agnostic                                  ║"
+Write-Success "║  Local-First Development                                         ║"
 Write-Success "╚══════════════════════════════════════════════════════════════════╝"
 Write-Host ""
 
@@ -132,7 +132,7 @@ try {
             # Update current session PATH
             $env:PATH = "$env:PATH;$InstallDir"
             
-            Write-Success "✓ Added $InstallDir to PATH"
+            Write-Success "[OK] Added $InstallDir to PATH"
         } else {
             Write-Info "LocalCloud directory already in PATH"
         }
@@ -145,14 +145,14 @@ try {
     Write-Info "Verifying installation..."
     $version = & $binaryPath --version 2>$null
     if ($LASTEXITCODE -eq 0) {
-        Write-Success "✓ LocalCloud installed successfully!"
-        Write-Success "✓ Version: $version"
+        Write-Success "[OK] LocalCloud installed successfully!"
+        Write-Success "[OK] Version: $version"
     } else {
         Write-Warning "Installation completed but version check failed"
     }
     
     Write-Host ""
-    Write-Success "🎉 LocalCloud is ready to use!"
+    Write-Success "[SUCCESS] LocalCloud is ready to use!"
     Write-Host ""
     Write-Info "Quick Start (AI Assistant Mode):"
     Write-Host "  localcloud setup my-ai-app --preset=ai-dev --yes" -ForegroundColor White
