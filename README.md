@@ -41,6 +41,7 @@ Choose your platform for one-command installation:
 curl -fsSL https://localcloud.sh/install | bash
 ```
 
+<!-- TODO: Enable when Windows is ready
 #### **Windows (PowerShell)**
 ```powershell
 # Install
@@ -49,6 +50,7 @@ iwr -useb https://localcloud.sh/install.ps1 | iex
 # Update/Reinstall
 iwr -useb https://localcloud.sh/install.ps1 | iex -ArgumentList "-Force"
 ```
+-->
 
 #### **Package Managers**
 ```bash
@@ -66,6 +68,16 @@ brew install localcloud-sh/tap/localcloud
 
 <details>
 <summary>📋 Alternative Installation Methods</summary>
+
+**Windows (PowerShell) - Under Testing 🧪**
+```powershell
+# Install (https://localcloud.sh/install.ps1)
+iwr -useb https://localcloud.sh/install.ps1 | iex
+
+# Update/Reinstall
+iwr -useb https://localcloud.sh/install.ps1 | iex -ArgumentList "-Force"
+```
+*Note: Windows support is currently under testing. Use at your own risk.*
 
 **Manual Download:**
 1. Download latest release from [GitHub Releases](https://github.com/localcloud-sh/localcloud/releases)
@@ -270,16 +282,17 @@ LocalCloud Project Structure:
 
 ## 🛠️ System Requirements
 
-- **OS**: macOS, Linux, Windows 10/11
+- **OS**: macOS, Linux <!-- , Windows 10/11 (under testing) -->
 - **RAM**: 4GB minimum (8GB recommended)
 - **Disk**: 10GB free space
 - **Docker**: Docker Desktop or Docker Engine
 - **CPU**: x64 or ARM64 processor
 
-> **Note**: LocalCloud is written in Go for performance, but you don't need Go installed. The CLI is a single binary that works everywhere. Windows users can install via PowerShell - no WSL required.
+> **Note**: LocalCloud is written in Go for performance, but you don't need Go installed. The CLI is a single binary that works everywhere.
 
 ## 🔄 Updating LocalCloud
 
+<!-- TODO: Enable when Windows is ready
 **Windows:**
 ```powershell
 # Check if update is needed (will show current version)
@@ -288,6 +301,7 @@ iwr -useb https://localcloud.sh/install.ps1 | iex
 # Force update/reinstall
 iwr -useb https://localcloud.sh/install.ps1 | iex -ArgumentList "-Force"
 ```
+-->
 
 **macOS/Linux (Homebrew):**
 ```bash
