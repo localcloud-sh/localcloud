@@ -1,5 +1,0 @@
-.localcloud/data/
-.localcloud/logs/
-.localcloud/tunnels/
-.env.local
-*.log
